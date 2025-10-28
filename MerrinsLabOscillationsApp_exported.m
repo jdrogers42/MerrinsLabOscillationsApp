@@ -20,6 +20,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         UIAxes3                   matlab.ui.control.UIAxes
         UIAxesWVLT                matlab.ui.control.UIAxes
         ControlsPanel             matlab.ui.container.Panel
+        IgnoreOutliersCheckBox    matlab.ui.control.CheckBox
         UpdateOutputButton        matlab.ui.control.Button
         DetrendCheckBox           matlab.ui.control.CheckBox
         UITableAnalVals           matlab.ui.control.Table
@@ -46,6 +47,8 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         timewindows=table(); % table containing the start and end times for each time window
         datapath; % path where data is located and output is saved
         OutTable = table() %store all the output info in this table
+        TableData % Table to hold values directly read from file
+        artifacts; % 2 column vector of [locations peaks] of artifacts in the data to be ignored
     end
 
 
@@ -172,6 +175,9 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             ys=app.UITableAnalVals.Data.ydata(app.rows2plot);
             peaks = app.UITableAnalVals.Data.peaks(app.rows2plot);
             troughs = app.UITableAnalVals.Data.troughs(app.rows2plot);
+
+            %pks = findpeaks(ys)
+
 
             h = plot(app.UIAxesAnal,xs{1},ys{1});
             if app.UITableAnalVals.Data(app.rows2plot,:).Ignore(1); h.Color(4)=0.15; end % set alpha low for ignored rows
@@ -303,16 +309,31 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         % Button pushed function: ChooseFiletoImportButton
         function ChooseFiletoImportButtonPushed(app, event)
             [filename, path]=uigetfile({'*.xlsx';'*.xls'}, 'Select Excel File');
-            fullfilename = fullfile(path, filename);
-            app.FileNameEditField.Value=filename;
             if isequal(filename, 0) % Check if user canceled
                 return;
+            else
+                fullfilename = fullfile(path, filename);
+                app.FileNameEditField.Value=filename;
             end        
             % read in the excel data to a table and asign to a UITable
-            TableData = readtable(fullfilename,"Sheet",1);
-            app.UITableImported.Data = TableData;
-            app.UITableImported.ColumnName = TableData.Properties.VariableDescriptions;
+            app.TableData = readtable(fullfilename,"Sheet",1);
+            app.UITableImported.Data = app.TableData;
+            app.UITableImported.ColumnName = app.TableData.Properties.VariableDescriptions;
             
+            % Identify artifacts. Assume that artifacts are present
+            % across all regions, so use the mean of all regions. This
+            % greatly reduces the standard deviation and smoothes the
+            % curves, but not the artifact making it more prominent. Then
+            % use findpeaks() to identify artifacts that are less than 1.5
+            % samples in width and have a prominance more than 2x the
+            % standard deviation of the average signal. Set the values to
+            % NaN but plot them in the preview window so we know what was
+            % removed.
+            meandata = mean(app.TableData{:,2:end}')
+            [~,locs]=findpeaks(meandata,'MinPeakProminence',2*std(meandata),'MaxPeakWidth',1.5)
+            vals = app.TableData{locs,2:end}; % values of each region atthe artifact location
+            app.artifacts = [locs' vals]; % artifacts to ignore if box is checked
+
             % set output file name
             [~,filenamesansext,~] = fileparts(filename);
             app.datapath = path;
@@ -482,6 +503,11 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             else
                 writetable(app.OutTable,fullsavefile)
             end
+            assignin('base','xdata',app.UITableAnalVals.Data.xdata);
+            assignin('base','ydata',app.UITableAnalVals.Data.ydata);
+            assignin('base','peaks',app.UITableAnalVals.Data.peaks);
+            assignin('base','troughs',app.UITableAnalVals.Data.troughs);
+            
         end
 
         % Value changed function: SaveFileEditField
@@ -493,6 +519,21 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         % Button pushed function: UpdateOutputButton
         function UpdateOutputButtonPushed(app, event)
             app.updateOutTable()
+        end
+
+        % Value changed function: IgnoreOutliersCheckBox
+        function IgnoreOutliersCheckBoxValueChanged(app, event)
+            value = app.IgnoreOutliersCheckBox.Value;
+            % if the checkbox is changed, toggle the vals in the table
+            % between NaN and the original vals stored in app.artifacts
+            if value
+                app.UITableImported.Data{app.artifacts(:,1),2:end}=NaN;
+            else
+                app.UITableImported.Data{app.artifacts(:,1),2:end}=app.artifacts(:,2:end);
+            end
+            app.updatePreviewPlot()
+            app.updateUITableAnalVals()
+            app.updateAnalPlot()
         end
     end
 
@@ -537,6 +578,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.SensorTypeDropDown = uidropdown(app.ControlsPanel);
             app.SensorTypeDropDown.Items = {'None', 'Fura', 'Perceval', 'Laconic'};
             app.SensorTypeDropDown.ValueChangedFcn = createCallbackFcn(app, @SensorTypeDropDownValueChanged, true);
+            app.SensorTypeDropDown.Tooltip = {'Select the sensor'};
             app.SensorTypeDropDown.Position = [99 454 100 22];
             app.SensorTypeDropDown.Value = 'None';
 
@@ -558,8 +600,9 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             % Create DetrendCheckBox
             app.DetrendCheckBox = uicheckbox(app.ControlsPanel);
             app.DetrendCheckBox.ValueChangedFcn = createCallbackFcn(app, @DetrendCheckBoxValueChanged, true);
+            app.DetrendCheckBox.Tooltip = {'Flatten the curves by removing the slope.'};
             app.DetrendCheckBox.Text = 'Detrend';
-            app.DetrendCheckBox.Position = [19 433 65 22];
+            app.DetrendCheckBox.Position = [19 408 65 22];
             app.DetrendCheckBox.Value = true;
 
             % Create UpdateOutputButton
@@ -568,6 +611,13 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.UpdateOutputButton.BackgroundColor = [0.0667 0.4431 0.7451];
             app.UpdateOutputButton.Position = [5 15 259 23];
             app.UpdateOutputButton.Text = 'Update Output with Current Analysis Params';
+
+            % Create IgnoreOutliersCheckBox
+            app.IgnoreOutliersCheckBox = uicheckbox(app.ControlsPanel);
+            app.IgnoreOutliersCheckBox.ValueChangedFcn = createCallbackFcn(app, @IgnoreOutliersCheckBoxValueChanged, true);
+            app.IgnoreOutliersCheckBox.Tooltip = {'Remove artifacts (shown as x in preview window) by identifying peaks that occur across all regions, are less than 1 timepoint wide, and are more than 2 standard deviations in prominence'};
+            app.IgnoreOutliersCheckBox.Text = 'Ignore Outliers';
+            app.IgnoreOutliersCheckBox.Position = [19 433 100 22];
 
             % Create TabGroup
             app.TabGroup = uitabgroup(app.GridLayout);
