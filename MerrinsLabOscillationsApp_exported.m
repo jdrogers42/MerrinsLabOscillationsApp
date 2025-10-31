@@ -268,18 +268,20 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             % end
             
             plot(app.UIAxesWVLTx, t,sig)
-            ylabel('Ca^2^+')
+            %ylabel('Ca^2^+')
             
+            plot(app.UIAxesWVLTy,mean(abs(cfs(:,:))'),frq)
+            set(app.UIAxesWVLTy,'yscale','log');
+            %xlabel('cwt')
+
             pcolor(app.UIAxesWVLT,t,frq,abs(cfs),LineStyle='none');
             shading interp;
             %axis tight;
             set(app.UIAxesWVLT,'yscale','log');
-            xlabel('Time (s)');ylabel('Frequency (Hz)')
-            linkaxes(app.UIAxesWVLTx,'x')
+            %xlabel('Time (s)');ylabel('Frequency (Hz)')
+            linkaxes([app.UIAxesWVLT app.UIAxesWVLTx],'x')
+            linkaxes([app.UIAxesWVLT app.UIAxesWVLTy],'y')
             
-            plot(app.UIAxesWVLTy ,mean(abs(cfs(:,:))'),frq)
-            set(gca,'yscale','log');
-            xlabel('cwt')
 
         end
 
