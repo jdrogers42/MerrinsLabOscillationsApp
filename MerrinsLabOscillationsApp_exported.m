@@ -239,10 +239,14 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         end
 
         function updateWaveletPlot(app)
-            %% Create Time-Frequency Representations, and seperate the 10-60s signal and 60-600s signal and the cwt coeffs
-            %% written by Huixia Ren, 2025/10/07
-            t=app.UITableAnalVals.Data.xdata{app.rows2plot(1)}/60;
-            sig=app.UITableAnalVals.Data.ydata{app.rows2plot(1)};
+            % Create Time-Frequency Representations, and seperate the 10-60s signal and 60-600s signal and the cwt coeffs
+            % written by Huixia Ren, 2025/10/07
+            % Updated by J.D. Rogers 2025/10/31
+
+            % must handle NaN values before sending to filterbank, for now
+            % set NaN to nearest val
+            t=app.UITableAnalVals.Data.xdata{app.rows2plot(1)};
+            sig=fillmissing(app.UITableAnalVals.Data.ydata{app.rows2plot(1)},'nearest');
             
             % cwt parameters
             % we used the analytic Morse(3,60) wavelet with period limits from 10s to 600s as the continuous wavelet
@@ -250,8 +254,9 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             % continuous wavelet transform return a matrix of 60 x T.  The mean Row
             % 1-26 27-60
             
+
             fb = cwtfilterbank('wavelet','morse','SignalLength',length(sig),...
-                'WaveletParameters',[3 60],'VoicesPerOctave',10,'SamplingPeriod',seconds((t(2)-t(1))*60), 'PeriodLimits',[seconds(10) seconds(600)]);
+                'WaveletParameters',[3 60],'VoicesPerOctave',10,'SamplingPeriod',seconds((t(2)-t(1))), 'PeriodLimits',[seconds(10) seconds(600)]);
             
             [cfs,frq,coi] = wt(fb,sig);
             frq = 1./seconds(frq);
@@ -265,7 +270,10 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             plot(app.UIAxesWVLTx, t,sig)
             ylabel('Ca^2^+')
             
-            pcolor(app.UIAxesWVLT,t,frq,abs(cfs));shading interp;axis tight;set(gca,'yscale','log');
+            pcolor(app.UIAxesWVLT,t,frq,abs(cfs),LineStyle='none');
+            shading interp;
+            %axis tight;
+            set(app.UIAxesWVLT,'yscale','log');
             xlabel('Time (s)');ylabel('Frequency (Hz)')
             linkaxes(app.UIAxesWVLTx,'x')
             
