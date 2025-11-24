@@ -20,6 +20,8 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         UIAxesWVLTx               matlab.ui.control.UIAxes
         UIAxesWVLT                matlab.ui.control.UIAxes
         ControlsPanel             matlab.ui.container.Panel
+        SheetDropDown             matlab.ui.control.DropDown
+        SheetDropDownLabel        matlab.ui.control.Label
         UsefindpeaksCheckBox      matlab.ui.control.CheckBox
         IgnoreOutliersCheckBox    matlab.ui.control.CheckBox
         UpdateOutputButton        matlab.ui.control.Button
@@ -37,11 +39,14 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
     
     % This app written by J.D. Rogers <rogersjd@gmail.com> on Oct 11, 2025
     % Based on Merrins lab code, converted to GUI
-    % last updated: 20251016
+    % last updated: 20251105
 
 
     % shared variables across functions
     properties (Access = private)
+        fullfilename; % file selected to import
+        sheet; % which sheet of the selected file to work with
+        DialogChooseSheet;
         cols2preview; % which columns in the imported table to plot in the preview
         rows2plot=[1]; % which row in the AnalVal table to plot in the anal window 
         alltimes;  % time in seconds for the entire data set
@@ -50,14 +55,96 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         OutTable = table(); %store all the output info in this table
         TableData; % Table to hold values directly read from file
         artifacts; % 2 column vector of [locations peaks] of artifacts in the data to be ignored
+        timecol; % the column containing the time values (not always the first col
+        firstdatacol; % first column with data, assume it starts with #
     end
 
 
     methods (Access = private)
+        
+        function initializeTables(app)
+            % read in the excel data to a table and asign to a UITable
+            app.TableData = readtable(app.fullfilename,"Sheet",app.SheetDropDown.Value);
+            app.UITableImported.Data = app.TableData;
+            app.UITableImported.ColumnName = app.TableData.Properties.VariableDescriptions;
+            % identify columns that are data
+            app.timecol = find(contains(app.TableData.Properties.VariableDescriptions,'Time'));
+            app.firstdatacol = find(contains(app.TableData.Properties.VariableDescriptions,'#'),1);
+
+            % Identify artifacts. Assume that artifacts are present
+            % across all regions, so use the mean of all regions. This
+            % greatly reduces the standard deviation and smoothes the
+            % curves, but not the artifact making it more prominent. Then
+            % use findpeaks() to identify artifacts that are less than 1.5
+            % samples in width and have a prominance more than 2x the
+            % standard deviation of the average signal. Set the values to
+            % NaN but plot them in the preview window so we know what was
+            % removed.
+
+            meandata = mean(app.TableData{:,app.firstdatacol:end}');
+            [pks,locs]=findpeaks(meandata,'MinPeakProminence',2*std(meandata),'MaxPeakWidth',1.5);
+            vals = app.TableData{locs,app.firstdatacol:end}; % values of each region atthe artifact location
+            app.artifacts = [locs' vals]; % artifacts to ignore if box is checke % assignin("base","artifacts",app.artifacts)
+            % initialize the preview window
+            app.cols2preview = app.firstdatacol; % start with first data column, update by selecting one or more collumns in the table later
+            % app.alltimes = app.UITableImported.Data{:,1};
+            app.alltimes = app.UITableImported.Data{:,app.timecol};
+            plot(app.UIAxesSelector,app.alltimes,app.UITableImported.Data{:,app.cols2preview});
+            if app.artifacts % only plot the artifacts if they exist
+            hold(app.UIAxesSelector,"on");
+                plot(app.UIAxesSelector,app.UITableImported.Data{app.artifacts(:,1),1}, ...
+                                    mean(app.artifacts(:,app.firstdatacol:end),2), ...
+                                    "rx",'DisplayName','Artifact');
+                hold(app.UIAxesSelector,"off");
+            end
+            legend(app.UIAxesSelector,app.UITableImported.Data.Properties.VariableDescriptions{app.cols2preview},Location="east");
+            title(app.UIAxesSelector,'Data Preview, select column(s) on left to plot');
+            xlabel(app.UIAxesSelector,app.UITableImported.Data.Properties.VariableDescriptions{1});
+            ylabel(app.UIAxesSelector,'Val');
+
+            % initialize a time window data table with the first time window add more later by adding rows
+            startT = min(app.UITableImported.Data{:,app.timecol}); % use min and max instead of 1 and end to handle NaNs
+            endT = max(app.UITableImported.Data{:,app.timecol});
+            app.UITableTimeWindows.Data = table({'Window 1'},{startT},{endT},'VariableNames',{'Time Window','start [s]','end [s]'});
+
+            % initialize UITableAnalVals table
+            % Note that this table includes region, time window, threshold and ignore flag. 
+            
+            app.UITableAnalVals.Data = table(); % init a table and then add variables
+            app.UITableAnalVals.Data.Region = app.UITableImported.Data.Properties.VariableDescriptions(app.firstdatacol:end)'; % transpose cell array to get iselts as rows
+            app.UITableAnalVals.Data.TWindow(:) = app.UITableTimeWindows.Data{1,1};
+            app.UITableAnalVals.Data.Threshold(:) =  std(app.UITableImported.Data{:,app.firstdatacol:end}); % 0.04; % old code used 0.04 as default threshhold for peak finding, trying std() as a starting point instead
+            app.UITableAnalVals.Data.Ignore(:) = false;
+            % window, peaks, and troughs. Much is redundant but needed to
+            % make plotting multiple rows in live view easier
+            app.UITableAnalVals.Data.tmin(:)=0;
+            app.UITableAnalVals.Data.tmax(:)=0;
+            app.UITableAnalVals.Data.tminind(:)=0;
+            app.UITableAnalVals.Data.tmaxind(:)=0;
+            % since the rest will take array vals, initialize them as cell arrays
+            app.UITableAnalVals.Data.xdata(:)={0}; 
+            app.UITableAnalVals.Data.ydata(:)={0};
+            app.UITableAnalVals.Data.peaks(:)={0};
+            app.UITableAnalVals.Data.troughs(:)={0};
+
+            
+            % initialize the data analysis plot 
+            tmin = cell2mat(app.UITableTimeWindows.Data{1,2});
+            tmax = cell2mat(app.UITableTimeWindows.Data{1,3});
+            
+            tminind = find(app.alltimes>=tmin,1,'first');
+            tmaxind = find(app.alltimes<=tmax,1,'last');
+            
+            xdata = app.UITableImported.Data{tminind:tmaxind,app.timecol};
+            ydata = app.UITableImported.Data{tminind:tmaxind,app.firstdatacol};
+
+            app.updateUITableAnalVals();
+            plot(app.UIAxesAnal,xdata,ydata);
+        end
 
         function updatePreviewPlot(app)
             % replot the full time sequence for the given selected columns
-            plot(app.UIAxesSelector,app.UITableImported.Data{:,1},app.UITableImported.Data{:,app.cols2preview});
+            plot(app.UIAxesSelector,app.UITableImported.Data{:,app.timecol},app.UITableImported.Data{:,app.cols2preview});
             legend(app.UIAxesSelector,app.UITableImported.Data.Properties.VariableDescriptions{app.cols2preview},Location="east");
             title(app.UIAxesSelector,'select column(s) on left to plot, click to select time windows');
             ylim(app.UIAxesSelector,'auto');
@@ -81,7 +168,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             end
             ylim(app.UIAxesSelector,yl);
             %if app.IgnoreOutliersCheckBox.Value; plot(app.UIAxesSelector,app.artifacts(:,1),mean(app.artifacts(:,2:end),2),"rx",'DisplayName','Artifact');end
-            plot(app.UIAxesSelector,app.UITableImported.Data{app.artifacts(:,1),1},mean(app.artifacts(:,2:end),2),"rx",'DisplayName','Artifact')
+            plot(app.UIAxesSelector,app.UITableImported.Data{app.artifacts(:,1),app.timecol},mean(app.artifacts(:,2:end),2),"rx",'DisplayName','Artifact')
             hold(app.UIAxesSelector,"off")
         end
 
@@ -90,7 +177,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             nTWindows = size(app.UITableTimeWindows.Data,1);
             % For each time window row, make a set of nRegions of rows to
             % the analysis table
-            nRegions = size(app.UITableImported.Data,2)-1; % (-1) since first column is time
+            nRegions = size(app.UITableImported.Data,2)+1-app.firstdatacol; % only count the number of data cols
             for ii=1:nTWindows
                 % Add nRegions of rows for each time window to the tale
                 app.UITableAnalVals.Data.TWindow((ii-1)*nRegions+(1:nRegions))=app.UITableTimeWindows.Data{ii,1};
@@ -106,14 +193,14 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                 app.UITableAnalVals.Data.tmaxind((ii-1)*nRegions+[1:nRegions])= tmaxind;
                 
                 if tminind<tmaxind % if the window start is after the end, just choose the end value
-                    xdata=app.UITableImported.Data{tminind:tmaxind,1};
+                    xdata=app.UITableImported.Data{tminind:tmaxind,app.timecol};
                 else
-                    xdata=app.UITableImported.Data{tmaxind,1};
+                    xdata=app.UITableImported.Data{tmaxind,app.timecol};
                 end
                 xdata=xdata-xdata(1); 
                 app.UITableAnalVals.Data.xdata((ii-1)*nRegions+[1:nRegions])={xdata};
                 for row=1:nRegions
-                    ydata = app.UITableImported.Data{tminind:tmaxind,row+1}; % row+1 because first row of imported data is time
+                    ydata = app.UITableImported.Data{tminind:tmaxind,row-1+app.firstdatacol}; % skip first non-data rows
                     threshold = app.UITableAnalVals.Data.Threshold((ii-1)*nRegions+row);
 
                     % Find peaks and troughs
@@ -144,7 +231,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
 
             end
 
-            app.updateAnalPlot()
+            app.updateAnalPlot();
 
         end
 
@@ -162,6 +249,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             
             pks = app.UITableAnalVals.Data.peaks(regions2output);
             trs = app.UITableAnalVals.Data.troughs(regions2output);
+           
 
             tmp=cell2mat(cellfun(@size,pks,'UniformOutput',false)); 
             app.OutTable.NPulses(:)=tmp(:,1);
@@ -267,7 +355,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             %    cfs( frq < coi(i), i) = 0;
             % end
             
-            plot(app.UIAxesWVLTx, t,sig)
+            plot(app.UIAxesWVLTx, t,sig);
             %ylabel('Ca^2^+')
             
             plot(app.UIAxesWVLTy,mean(abs(cfs(:,:))'),frq)
@@ -279,8 +367,8 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             %axis tight;
             set(app.UIAxesWVLT,'yscale','log');
             %xlabel('Time (s)');ylabel('Frequency (Hz)')
-            linkaxes([app.UIAxesWVLT app.UIAxesWVLTx],'x')
-            linkaxes([app.UIAxesWVLT app.UIAxesWVLTy],'y')
+            linkaxes([app.UIAxesWVLT app.UIAxesWVLTx],'x');
+            linkaxes([app.UIAxesWVLT app.UIAxesWVLTy],'y');
             
 
         end
@@ -439,81 +527,20 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             if isequal(filename, 0) % Check if user canceled
                 return;
             else
-                fullfilename = fullfile(path, filename);
+                app.fullfilename = fullfile(path, filename);
                 app.FileNameEditField.Value=filename;
-            end        
-            % read in the excel data to a table and asign to a UITable
-            app.TableData = readtable(fullfilename,"Sheet",1);
-            app.UITableImported.Data = app.TableData;
-            app.UITableImported.ColumnName = app.TableData.Properties.VariableDescriptions;
-            
-            % Identify artifacts. Assume that artifacts are present
-            % across all regions, so use the mean of all regions. This
-            % greatly reduces the standard deviation and smoothes the
-            % curves, but not the artifact making it more prominent. Then
-            % use findpeaks() to identify artifacts that are less than 1.5
-            % samples in width and have a prominance more than 2x the
-            % standard deviation of the average signal. Set the values to
-            % NaN but plot them in the preview window so we know what was
-            % removed.
-            meandata = mean(app.TableData{:,2:end}');
-            [pks,locs]=findpeaks(meandata,'MinPeakProminence',2*std(meandata),'MaxPeakWidth',1.5);
-            vals = app.TableData{locs,2:end}; % values of each region atthe artifact location
-            app.artifacts = [locs' vals]; % artifacts to ignore if box is checked
+            end
+            %if length(sheetnames(fullfilename))>1 % file contains multiple sheets, ask user to select one
+            app.SheetDropDown.Items = sheetnames(app.fullfilename);
+            %app.SheetDropDown.Items{1}
+            app.SheetDropDown.Value = app.SheetDropDown.Items{1};
 
             % set output file name
-            [~,filenamesansext,~] = fileparts(filename);
+            [~,filenamesansext,~] = fileparts(app.fullfilename);
             app.datapath = path;
             app.SaveFileEditField.Value = [filenamesansext  '_analyzed-'  char(datetime('now','Format','y-MMM-d'))  '.xlsx'];
-            
-            % initialize the preview window
-            app.cols2preview = 2; % start with first data column, update by selecting one or more collumns in the table later
-            app.alltimes = app.UITableImported.Data{:,1};
-            plot(app.UIAxesSelector,app.alltimes,app.UITableImported.Data{:,app.cols2preview});
-            hold(app.UIAxesSelector,"on");plot(app.UIAxesSelector,app.UITableImported.Data{app.artifacts(:,1),1},mean(app.artifacts(:,2:end),2),"rx",'DisplayName','Artifact');hold(app.UIAxesSelector,"on");
-            legend(app.UIAxesSelector,app.UITableImported.Data.Properties.VariableDescriptions{app.cols2preview},Location="east");
-            title(app.UIAxesSelector,'Data Preview, select column(s) on left to plot');
-            xlabel(app.UIAxesSelector,app.UITableImported.Data.Properties.VariableDescriptions{1});
-            ylabel(app.UIAxesSelector,'Val');
 
-            % initialize a time window data table with the first time window add more later by adding rows
-            startT = min(app.UITableImported.Data{:,1}); % use min and max instead of 1 and end to handle NaNs
-            endT = max(app.UITableImported.Data{:,1});
-            app.UITableTimeWindows.Data = table({'Window 1'},{startT},{endT},'VariableNames',{'Time Window','start [s]','end [s]'});
-
-            % initialize UITableAnalVals table
-            % Note that this table includes region, time window, threshold and ignore flag. 
-            
-            app.UITableAnalVals.Data = table(); % init a table and then add variables
-            app.UITableAnalVals.Data.Region = app.UITableImported.Data.Properties.VariableDescriptions(2:end)'; % transpose cell array to get iselts as rows
-            app.UITableAnalVals.Data.TWindow(:) = app.UITableTimeWindows.Data{1,1};
-            app.UITableAnalVals.Data.Threshold(:) =  std(app.UITableImported.Data{:,2:end}); % 0.04; % old code used 0.04 as default threshhold for peak finding, trying std() as a starting point instead
-            app.UITableAnalVals.Data.Ignore(:) = false;
-            % window, peaks, and troughs. Much is redundant but needed to
-            % make plotting multiple rows in live view easier
-            app.UITableAnalVals.Data.tmin(:)=0;
-            app.UITableAnalVals.Data.tmax(:)=0;
-            app.UITableAnalVals.Data.tminind(:)=0;
-            app.UITableAnalVals.Data.tmaxind(:)=0;
-            % since the rest will take array vals, initialize them as cell arrays
-            app.UITableAnalVals.Data.xdata(:)={0}; 
-            app.UITableAnalVals.Data.ydata(:)={0};
-            app.UITableAnalVals.Data.peaks(:)={0};
-            app.UITableAnalVals.Data.troughs(:)={0};
-
-            
-            % initialize the data analysis plot 
-            tmin = cell2mat(app.UITableTimeWindows.Data{1,2});
-            tmax = cell2mat(app.UITableTimeWindows.Data{1,3});
-            
-            tminind = find(app.alltimes>=tmin,1,'first');
-            tmaxind = find(app.alltimes<=tmax,1,'last');
-            
-            xdata = app.UITableImported.Data{tminind:tmaxind,1};
-            ydata = app.UITableImported.Data{tminind:tmaxind,2};
-
-            app.updateUITableAnalVals();
-            plot(app.UIAxesAnal,xdata,ydata);
+            app.initializeTables();
 
         end
 
@@ -527,6 +554,12 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         % Selection changed function: UITableImported
         function UITableImportedSelectionChanged(app, event)
             app.cols2preview = app.UITableImported.Selection; % since selection mode is set to column, this will only return col values
+            numericcols = zeros(size(app.cols2preview));
+            for ii=1:length(numericcols) % remove non-numeric cols from preview list
+                numericcols(ii)=isnumeric(app.UITableImported.Data{:,app.cols2preview(ii)});
+            end
+            app.cols2preview=app.cols2preview(logical(numericcols)); 
+            if isempty(app.cols2preview), app.cols2preview = app.firstdatacol; end % fall back to first col if no valid data cols selected
             app.updatePreviewPlot();
         end
 
@@ -540,14 +573,14 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         function UITableTimeWindowsCellEdit(app, event)
             indices = event.Indices;
             newData = event.NewData;
-            app.updatePreviewPlot()
+            app.updatePreviewPlot();
             app.updateUITableAnalVals();
             app.updateAnalPlot();
         end
 
         % Menu selected function: AddRow
         function AddRowMenuSelected(app, event)
-            nRegions = size(app.UITableImported.Data,2)-1; % -1 so we don't count the time column
+            nRegions = size(app.UITableImported.Data,2)+1-app.firstdatacol; % -1 so we don't count the time column
             app.UITableTimeWindows.Data(end+1,2:end)=app.UITableTimeWindows.Data(end,2:end);
             app.UITableTimeWindows.Data(end,1)={' '}; % must assign a string containering cell array so legend works for patches
             app.UITableAnalVals.Data = [app.UITableAnalVals.Data(:,:); app.UITableAnalVals.Data(1:nRegions,:)];
@@ -561,7 +594,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                 disp('can not delete only row')
             else
                 % TODO: delete based on time window name
-                nRegions = size(app.UITableImported.Data,2)-1; % -1 so we don't count the time column
+                nRegions = size(app.UITableImported.Data,2)+1-app.firstdatacol; % -1 so we don't count the time column
 
                 app.UITableAnalVals.Data(end-nRegions:end,:)=[];
                 app.UITableTimeWindows.Data(end,:)=[];
@@ -625,7 +658,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
 
         % Button pushed function: UpdateOutputButton
         function UpdateOutputButtonPushed(app, event)
-            app.updateOutTable()
+            app.updateOutTable();
         end
 
         % Value changed function: IgnoreOutliersCheckBox
@@ -646,7 +679,13 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         % Value changed function: UsefindpeaksCheckBox
         function UsefindpeaksCheckBoxValueChanged(app, event)
             value = app.UsefindpeaksCheckBox.Value;
-            app.updateUITableAnalVals()
+            app.updateUITableAnalVals();
+        end
+
+        % Value changed function: SheetDropDown
+        function SheetDropDownValueChanged(app, event)
+            value = app.SheetDropDown.Value;
+            app.initializeTables()
         end
     end
 
@@ -658,13 +697,14 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
 
             % Create UIFigure and hide until all components are created
             app.UIFigure = uifigure('Visible', 'off');
-            app.UIFigure.Position = [100 100 1624 1271];
+            app.UIFigure.AutoResizeChildren = 'off';
+            app.UIFigure.Position = [100 100 1600 1280];
             app.UIFigure.Name = 'MATLAB App';
 
             % Create GridLayout
             app.GridLayout = uigridlayout(app.UIFigure);
             app.GridLayout.ColumnWidth = {'5x', '10x'};
-            app.GridLayout.RowHeight = {'fit', '2x', '2x', '8x', '7x'};
+            app.GridLayout.RowHeight = {'fit', '3x', '2x', '8x', '7x'};
 
             % Create UIAxesSelector
             app.UIAxesSelector = uiaxes(app.GridLayout);
@@ -677,6 +717,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
 
             % Create ControlsPanel
             app.ControlsPanel = uipanel(app.GridLayout);
+            app.ControlsPanel.AutoResizeChildren = 'off';
             app.ControlsPanel.Title = 'Controls';
             app.ControlsPanel.Layout.Row = 4;
             app.ControlsPanel.Layout.Column = 1;
@@ -684,21 +725,21 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             % Create SensorTypeDropDownLabel
             app.SensorTypeDropDownLabel = uilabel(app.ControlsPanel);
             app.SensorTypeDropDownLabel.HorizontalAlignment = 'right';
-            app.SensorTypeDropDownLabel.Position = [13 454 71 22];
+            app.SensorTypeDropDownLabel.Position = [13 403 71 22];
             app.SensorTypeDropDownLabel.Text = 'Sensor Type';
 
             % Create SensorTypeDropDown
             app.SensorTypeDropDown = uidropdown(app.ControlsPanel);
-            app.SensorTypeDropDown.Items = {'None', 'Fura', 'Perceval', 'Laconic'};
+            app.SensorTypeDropDown.Items = {'None', 'Calcium', 'Lactate', 'ATP/ADP'};
             app.SensorTypeDropDown.ValueChangedFcn = createCallbackFcn(app, @SensorTypeDropDownValueChanged, true);
             app.SensorTypeDropDown.Tooltip = {'Select the sensor'};
-            app.SensorTypeDropDown.Position = [99 454 100 22];
+            app.SensorTypeDropDown.Position = [99 403 100 22];
             app.SensorTypeDropDown.Value = 'None';
 
             % Create Instructions
             app.Instructions = uilabel(app.ControlsPanel);
-            app.Instructions.Position = [251 387 280 89];
-            app.Instructions.Text = {'Instructions: '; '1. Update time window start and end above'; '2. Right click table to add or remove time windows'; '3. Select row(s) below to plot, update params'; '4. Click Update Ouput to refresh output table'; '5. Save to output file'};
+            app.Instructions.Position = [249 352 280 103];
+            app.Instructions.Text = {'Instructions:'; '1. Choose file, select sheet from dropdown '; '2. Update time window start and end'; '3. Right click table to add or remove time windows'; '4. Select row(s) below to plot, update params'; '6. Click Update Ouput to refresh output table'; '7. Save to output file'};
 
             % Create UITableAnalVals
             app.UITableAnalVals = uitable(app.ControlsPanel);
@@ -707,21 +748,21 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.UITableAnalVals.ColumnEditable = [false false true true false false false false];
             app.UITableAnalVals.CellEditCallback = createCallbackFcn(app, @UITableAnalValsCellEdit, true);
             app.UITableAnalVals.SelectionChangedFcn = createCallbackFcn(app, @UITableAnalValsSelectionChanged, true);
-            app.UITableAnalVals.Position = [1 51 530 325];
+            app.UITableAnalVals.Position = [5 48 516 277];
 
             % Create DetrendCheckBox
             app.DetrendCheckBox = uicheckbox(app.ControlsPanel);
             app.DetrendCheckBox.ValueChangedFcn = createCallbackFcn(app, @DetrendCheckBoxValueChanged, true);
             app.DetrendCheckBox.Tooltip = {'Flatten the curves by removing the slope.'};
             app.DetrendCheckBox.Text = 'Detrend';
-            app.DetrendCheckBox.Position = [19 408 65 22];
+            app.DetrendCheckBox.Position = [19 356 65 22];
             app.DetrendCheckBox.Value = true;
 
             % Create UpdateOutputButton
             app.UpdateOutputButton = uibutton(app.ControlsPanel, 'push');
             app.UpdateOutputButton.ButtonPushedFcn = createCallbackFcn(app, @UpdateOutputButtonPushed, true);
             app.UpdateOutputButton.BackgroundColor = [0.0667 0.4431 0.7451];
-            app.UpdateOutputButton.Position = [5 15 259 23];
+            app.UpdateOutputButton.Position = [13 13 259 23];
             app.UpdateOutputButton.Text = 'Update Output with Current Analysis Params';
 
             % Create IgnoreOutliersCheckBox
@@ -729,22 +770,37 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.IgnoreOutliersCheckBox.ValueChangedFcn = createCallbackFcn(app, @IgnoreOutliersCheckBoxValueChanged, true);
             app.IgnoreOutliersCheckBox.Tooltip = {'Remove artifacts (shown as x in preview window) by identifying peaks that occur across all regions, are less than 1 timepoint wide, and are more than 2 standard deviations in prominence'};
             app.IgnoreOutliersCheckBox.Text = 'Ignore Outliers';
-            app.IgnoreOutliersCheckBox.Position = [19 431 100 22];
+            app.IgnoreOutliersCheckBox.Position = [19 379 100 22];
 
             % Create UsefindpeaksCheckBox
             app.UsefindpeaksCheckBox = uicheckbox(app.ControlsPanel);
             app.UsefindpeaksCheckBox.ValueChangedFcn = createCallbackFcn(app, @UsefindpeaksCheckBoxValueChanged, true);
             app.UsefindpeaksCheckBox.Tooltip = {'Peak and trough detection method:'; 'Default is to use the code developed by S. Sdao, but if checked, use the matlab findpeaks() method instead (JDR)'};
             app.UsefindpeaksCheckBox.Text = 'Use findpeaks()';
-            app.UsefindpeaksCheckBox.Position = [19 384 105 22];
+            app.UsefindpeaksCheckBox.Position = [19 332 105 22];
+
+            % Create SheetDropDownLabel
+            app.SheetDropDownLabel = uilabel(app.ControlsPanel);
+            app.SheetDropDownLabel.HorizontalAlignment = 'right';
+            app.SheetDropDownLabel.Position = [43 430 36 22];
+            app.SheetDropDownLabel.Text = 'Sheet';
+
+            % Create SheetDropDown
+            app.SheetDropDown = uidropdown(app.ControlsPanel);
+            app.SheetDropDown.Items = {'Sheet1'};
+            app.SheetDropDown.ValueChangedFcn = createCallbackFcn(app, @SheetDropDownValueChanged, true);
+            app.SheetDropDown.Position = [94 430 100 22];
+            app.SheetDropDown.Value = 'Sheet1';
 
             % Create TabGroup
             app.TabGroup = uitabgroup(app.GridLayout);
+            app.TabGroup.AutoResizeChildren = 'off';
             app.TabGroup.Layout.Row = [4 5];
             app.TabGroup.Layout.Column = 2;
 
             % Create PlotsTab
             app.PlotsTab = uitab(app.TabGroup);
+            app.PlotsTab.AutoResizeChildren = 'off';
             app.PlotsTab.Title = 'Plots';
 
             % Create UIAxesAnal
@@ -753,10 +809,11 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             xlabel(app.UIAxesAnal, 'X')
             ylabel(app.UIAxesAnal, 'Y')
             zlabel(app.UIAxesAnal, 'Z')
-            app.UIAxesAnal.Position = [0 1 1061 923];
+            app.UIAxesAnal.Position = [0 1 1045 883];
 
             % Create WaveletviewTab
             app.WaveletviewTab = uitab(app.TabGroup);
+            app.WaveletviewTab.AutoResizeChildren = 'off';
             app.WaveletviewTab.Title = 'Wavelet view';
 
             % Create UIAxesWVLT
@@ -765,18 +822,19 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             xlabel(app.UIAxesWVLT, 'X')
             ylabel(app.UIAxesWVLT, 'Y')
             zlabel(app.UIAxesWVLT, 'Z')
-            app.UIAxesWVLT.Position = [1 40 793 685];
+            app.UIAxesWVLT.Position = [1 0 793 685];
 
             % Create UIAxesWVLTx
             app.UIAxesWVLTx = uiaxes(app.WaveletviewTab);
-            app.UIAxesWVLTx.Position = [1 724 793 200];
+            app.UIAxesWVLTx.Position = [1 684 793 200];
 
             % Create UIAxesWVLTy
             app.UIAxesWVLTy = uiaxes(app.WaveletviewTab);
-            app.UIAxesWVLTy.Position = [793 40 269 685];
+            app.UIAxesWVLTy.Position = [793 0 252 685];
 
             % Create DataSummaryPanel
             app.DataSummaryPanel = uipanel(app.GridLayout);
+            app.DataSummaryPanel.AutoResizeChildren = 'off';
             app.DataSummaryPanel.Title = 'Data Summary';
             app.DataSummaryPanel.Layout.Row = 5;
             app.DataSummaryPanel.Layout.Column = 1;
@@ -785,20 +843,20 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.SaveOutputButton = uibutton(app.DataSummaryPanel, 'push');
             app.SaveOutputButton.ButtonPushedFcn = createCallbackFcn(app, @SaveOutputButtonPushed, true);
             app.SaveOutputButton.BackgroundColor = [0.0667 0.4431 0.7451];
-            app.SaveOutputButton.Position = [13 18 100 23];
+            app.SaveOutputButton.Position = [13 4 100 23];
             app.SaveOutputButton.Text = 'Save Output';
 
             % Create SaveFileEditField
             app.SaveFileEditField = uieditfield(app.DataSummaryPanel, 'text');
             app.SaveFileEditField.ValueChangedFcn = createCallbackFcn(app, @SaveFileEditFieldValueChanged2, true);
-            app.SaveFileEditField.Position = [124 18 397 22];
+            app.SaveFileEditField.Position = [124 4 397 22];
 
             % Create UITableOutput
             app.UITableOutput = uitable(app.DataSummaryPanel);
             app.UITableOutput.ColumnName = {'Region'; 'nPeaks'; 'Baseline'; 'maxPeak'; 'PeakAmplitude'; 'Period'; 'Threshold'; 'PlatFrac'; 'ActiveArea'; 'AvePlatWidth'; 'AveBaseWidth'; 'SlientPhase'; 'AveYval'; 'Notes'};
             app.UITableOutput.RowName = {};
             app.UITableOutput.ColumnEditable = [false false false false false false false false false false false false false true];
-            app.UITableOutput.Position = [5 57 516 248];
+            app.UITableOutput.Position = [5 38 516 248];
 
             % Create UITableTimeWindows
             app.UITableTimeWindows = uitable(app.GridLayout);
