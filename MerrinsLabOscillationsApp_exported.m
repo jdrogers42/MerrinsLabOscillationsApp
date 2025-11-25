@@ -9,6 +9,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         UITableImported           matlab.ui.control.Table
         UITableTimeWindows        matlab.ui.control.Table
         DataSummaryPanel          matlab.ui.container.Panel
+        LoadstateButton           matlab.ui.control.Button
         UITableOutput             matlab.ui.control.Table
         SaveFileEditField         matlab.ui.control.EditField
         SaveOutputButton          matlab.ui.control.Button
@@ -20,6 +21,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         UIAxesWVLTx               matlab.ui.control.UIAxes
         UIAxesWVLT                matlab.ui.control.UIAxes
         ControlsPanel             matlab.ui.container.Panel
+        ShowPlatsCheckBox         matlab.ui.control.CheckBox
         SheetDropDown             matlab.ui.control.DropDown
         SheetDropDownLabel        matlab.ui.control.Label
         UsefindpeaksCheckBox      matlab.ui.control.CheckBox
@@ -39,7 +41,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
     
     % This app written by J.D. Rogers <rogersjd@gmail.com> on Oct 11, 2025
     % Based on Merrins lab code, converted to GUI
-    % last updated: 20251105
+    % last updated: 20251122
 
 
     % shared variables across functions
@@ -75,14 +77,17 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             % across all regions, so use the mean of all regions. This
             % greatly reduces the standard deviation and smoothes the
             % curves, but not the artifact making it more prominent. Then
-            % use findpeaks() to identify artifacts that are less than 1.5
+            % use findpeaks() to identify artifacts that are less than 2.5
             % samples in width and have a prominance more than 2x the
             % standard deviation of the average signal. Set the values to
             % NaN but plot them in the preview window so we know what was
             % removed.
 
             meandata = mean(app.TableData{:,app.firstdatacol:end}');
-            [pks,locs]=findpeaks(meandata,'MinPeakProminence',2*std(meandata),'MaxPeakWidth',1.5);
+            [pks,locs]=findpeaks(meandata,'MinPeakProminence',2*std(meandata),'MaxPeakWidth',2.5);
+            [pksinv,locsinv]=findpeaks(-meandata,'MinPeakProminence',2*std(meandata),'MaxPeakWidth',2.5);
+            % assignin("base","pks",pks);assignin("base","pksinv",pksinv)
+            pks = [pks,pksinv]; locs = [locs,locsinv];
             vals = app.TableData{locs,app.firstdatacol:end}; % values of each region atthe artifact location
             app.artifacts = [locs' vals]; % artifacts to ignore if box is checke % assignin("base","artifacts",app.artifacts)
             % initialize the preview window
@@ -169,7 +174,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             ylim(app.UIAxesSelector,yl);
             %if app.IgnoreOutliersCheckBox.Value; plot(app.UIAxesSelector,app.artifacts(:,1),mean(app.artifacts(:,2:end),2),"rx",'DisplayName','Artifact');end
             plot(app.UIAxesSelector,app.UITableImported.Data{app.artifacts(:,1),app.timecol},mean(app.artifacts(:,2:end),2),"rx",'DisplayName','Artifact')
-            hold(app.UIAxesSelector,"off")
+            hold(app.UIAxesSelector,"off");
         end
 
         function updateUITableAnalVals(app)
@@ -181,7 +186,6 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             for ii=1:nTWindows
                 % Add nRegions of rows for each time window to the tale
                 app.UITableAnalVals.Data.TWindow((ii-1)*nRegions+(1:nRegions))=app.UITableTimeWindows.Data{ii,1};
-                
                 % set the start and end time (and indicesfor each table row
                 tmin = app.UITableTimeWindows.Data{ii,2}{1}; % index {1} to return value instead of cell array
                 tmax = app.UITableTimeWindows.Data{ii,3}{1};
@@ -198,11 +202,16 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                     xdata=app.UITableImported.Data{tmaxind,app.timecol};
                 end
                 xdata=xdata-xdata(1); 
+                
+                % wavelet filter bank
+                fb = cwtfilterbank('wavelet','morse','SignalLength',length(xdata),...
+                        'WaveletParameters',[3 60],'VoicesPerOctave',10,'SamplingPeriod',seconds((xdata(2)-xdata(1))), 'PeriodLimits',[seconds(10) seconds(600)]);
+                    
                 app.UITableAnalVals.Data.xdata((ii-1)*nRegions+[1:nRegions])={xdata};
                 for row=1:nRegions
                     ydata = app.UITableImported.Data{tminind:tmaxind,row-1+app.firstdatacol}; % skip first non-data rows
                     threshold = app.UITableAnalVals.Data.Threshold((ii-1)*nRegions+row);
-
+                    
                     % Find peaks and troughs
                     if (app.UsefindpeaksCheckBox.Value)
                         [pks,locs,widths,proms] = findpeaks(ydata,'MinPeakProminence',threshold,'MinPeakWidth',4);
@@ -211,8 +220,25 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                         troughs = [xdata(locs) -pks];
                     else
                         [peaks,troughs] = app.peakdetect(ydata,threshold,xdata);
+                        
+                        TroughSize = size(troughs);
+                        TroughSize = TroughSize(1); %grab the first value, the number of troughs.
+                        PeakSize = size(peaks);
+                        PeakSize = PeakSize(1);
+
+                        if(PeakSize ~= 0)
+                            if (peaks(1,1) < troughs(1,1))
+                                peaks = peaks(2:PeakSize,:); %remove first peak point if it is before the first trough point
+                                PeakSize = PeakSize - 1; %adjust peakSize by -1
+                            end
+                            if (peaks(PeakSize,1) > troughs(TroughSize,1)) %remove last peak point if it is after the last trough point
+                                peaks = peaks(1:end-1,:);
+                                PeakSize = PeakSize - 1;
+                            end
+                        end
                     end
-                    if (app.DetrendCheckBox.Value) && (size(troughs,1)>1) % detrend the data, use JDR method for now until I better understand Sophie's
+                    
+                    if (app.DetrendCheckBox.Value) && (size(troughs,1)>1) % detrend the data
                         p = polyfit(troughs(:,1),troughs(:,2),1);
                         ydata=ydata-p(1)*xdata;
                         peaks(:,2)=peaks(:,2)-p(1)*peaks(:,1);
@@ -225,8 +251,17 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                     app.UITableAnalVals.Data.peaks((ii-1)*nRegions+row)={peaks};
                     app.UITableAnalVals.Data.troughs((ii-1)*nRegions+row)={troughs};
 
+                    % calculate average wavelet over time
+                    sig=fillmissing(ydata,'nearest');
+                    [cfs,frq,coi] = wt(fb,sig);
+                    frq = 1./seconds(frq);
+                    coi = 1./seconds(coi);
+                    p   = 1./ frq;
+                    assignin("base","mcfs",mean(abs(cfs)'))
+                    assignin("base","frq",frq)
+                    app.UITableAnalVals.Data.aveWavelet((ii-1)*nRegions+row)={[frq mean(abs(cfs)')']};
 
-                    
+
                 end
 
             end
@@ -257,10 +292,10 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             tmp=cell2mat(cellfun(@mean,trs,'UniformOutput',false));
             app.OutTable.Baseline(:)=tmp(:,2);
 
-            tmp=cell2mat(cellfun(@max,pks,'UniformOutput',false));
-            app.OutTable.maxPeak(:)=tmp(:,2);
+            tmp=cell2mat(cellfun(@mean,pks,'UniformOutput',false));
+            app.OutTable.avgPeak(:)=tmp(:,2);
 
-            app.OutTable.peakAmplitude(:)=app.OutTable.maxPeak(:)-app.OutTable.Baseline(:);
+            app.OutTable.peakAmplitude(:)=app.OutTable.avgPeak(:)-app.OutTable.Baseline(:);
 
             tmp=cell2mat(cellfun(@size,pks,'UniformOutput',false));
             app.OutTable.Period(:)=cellfun(@(x) x(end,1)-x(1,1),trs)./tmp(:,1);
@@ -278,11 +313,27 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.OutTable.SilentPhase(:)=0;
             app.OutTable.AverageYval(:)=0;
             app.OutTable.Notes(:)={''};
-            app.UITableOutput.Data = app.OutTable;
             
+            
+            % app.SensorTypeDropDown.Value
+            % if app.SensorTypeDropDown.Value=='Calcium'
+                xdata = app.UITableAnalVals.Data.xdata(regions2output);
+                ydata = app.UITableAnalVals.Data.ydata(regions2output);
+                threshold = app.UITableAnalVals.Data.Threshold(regions2output);
+                for row=1:size(app.OutTable,1)
+                    [avgpf avgpa avgpw avgbw avgsp] = app.platfunction([xdata{row}, ydata{row}], 1, pks{row}, trs{row}, threshold(row));
+                    app.OutTable.PlatFraction(row)=avgpf;
+                    app.OutTable.ActiveArea(row)=avgpa;
+                    app.OutTable.AvePlatWidth(row)=avgpw;
+                    app.OutTable.AveBaseWidth(row)=avgbw;
+                    app.OutTable.SilentPhase(row)=avgsp;
+                end
+            % end
+            app.UITableOutput.Data = app.OutTable;
+
             % save vars into worspace for debugging purposes
-            assignin('base','trs',trs)
-            assignin('base','outtable',app.OutTable);
+            % assignin('base','trs',trs)
+            % assignin('base','outtable',app.OutTable);
             
         end
 
@@ -302,7 +353,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
 
             h = plot(app.UIAxesAnal,xs{1},ys{1});
             if app.UITableAnalVals.Data(app.rows2plot,:).Ignore(1); h.Color(4)=0.15; end % set alpha low for ignored rows
-            hold(app.UIAxesAnal,'on')
+            hold(app.UIAxesAnal,'on');
             if size(app.rows2plot,1)>1 % start with 2 so colors are correct
                 for ii=2:size(app.rows2plot,1)
                     h(ii) = plot(app.UIAxesAnal,xs{ii},ys{ii});
@@ -323,8 +374,12 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             catch
                 disp('failed to plot peaks and troughs')
             end
-            hold(app.UIAxesAnal,'off')
+            hold(app.UIAxesAnal,'off');
+            if app.ShowPlatsCheckBox.Value
+                [avgpf avgpa avgpw avgbw avgsp] = app.platfunction([xs{1}, ys{1}], 1, peaks{1}, troughs{1}, 0); % this will recalculate the plateaus, but also plot them in the anal window for the first selected row only
+            end
         end
+
 
         function updateWaveletPlot(app)
             % Create Time-Frequency Representations, and seperate the 10-60s signal and 60-600s signal and the cwt coeffs
@@ -358,7 +413,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             plot(app.UIAxesWVLTx, t,sig);
             %ylabel('Ca^2^+')
             
-            plot(app.UIAxesWVLTy,mean(abs(cfs(:,:))'),frq)
+            plot(app.UIAxesWVLTy,mean(abs(cfs(:,:))'),frq);
             set(app.UIAxesWVLTy,'yscale','log');
             %xlabel('cwt')
 
@@ -370,13 +425,12 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             linkaxes([app.UIAxesWVLT app.UIAxesWVLTx],'x');
             linkaxes([app.UIAxesWVLT app.UIAxesWVLTy],'y');
             
-
         end
 
         % *****************************************************************
         % code / functions from previous version 
         % *****************************************************************
-        function [maxtab, mintab]=peakdetect(~, v, delta, x) % add ~ for functions in appdesigner to account for callbacks - JDR
+        function [maxtab, mintab]=peakdetect(app, v, delta, x) % add ~ for functions in appdesigner to account for callbacks - JDR
             %PEAKDET Detect peaks in a vector
             %        [MAXTAB, MINTAB] = PEAKDET(V, DELTA) finds the local
             %        maxima and minima ("peaks") in the vector V.
@@ -396,7 +450,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             
             % v = v(:); % Just in case this wasn't a proper vector
             
-            nargin
+            nargin;
             if nargin < 3
               x = (1:length(v))';
             else 
@@ -456,6 +510,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             end
         end
 
+
         function [pArea] = platarea(~,baseheight,platheight,troughs,peaks,curve) % added ~ argument for callback -JDR
             
             pArea = [];
@@ -502,17 +557,224 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                     end
                 end
             
-                area(xscale,y2,y1);
-                colormap cool;
+                % area(xscale,y2,y1);
+                % colormap cool;
                 
-                yv = [baseheight(pulse); y2; baseheight(pulse); baseheight(pulse)];
-                xv = [xscale(1); xscale; xscale(end); xscale(1)];
-                pArea(pulse) = polyarea(xv,yv);
+                if ~isempty(xscale)
+                    yv = [baseheight(pulse); y2; baseheight(pulse); baseheight(pulse)];
+                    xv = [xscale(1); xscale; xscale(end); xscale(1)];
+                    pArea(pulse) = polyarea(xv,yv);
+                end
             end
         end
 
 
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        function [avgpf avgpa avgpw avgbw avgsp] = platfunction(app, curve, curveNum, peaks, troughs, threshold)
+        %      Determines left and right edges of plateau based off of user input.
+        %      Graphically represents plateau and base, and calculates plateau
+        %      width over the base width (aka the Plateau Fraction)
+        %
+        % Modified to take only one curve
+        doplots = app.ShowPlatsCheckBox.Value;
 
+        %Call global variable used to hold spreadsheet
+        
+        %Initialize arrays for later use
+        basewidth = [];
+        platwidth = [];
+        baseheight = [];
+        amplitudes = [];
+        minIndicies =[];
+        maxIndicies = [];
+        left_edge = [];
+        right_edge = [];
+        expoData = [];
+        pArea = [];
+        %Plateau Fractions
+        pf = [];
+        
+        minSize = length(troughs(:,1));
+        maxSize = length(peaks(:,1));
+        
+        %Determine parameters before messing with data
+        avgBaseline = mean(troughs(:,2));
+        avgPeak = mean(peaks(:,2));
+        deltaR = avgPeak - avgBaseline;
+        
+        PeakSize = size(peaks);
+        PeakSize = PeakSize(1);
+        period = (troughs(end,1) - troughs(1,1))/PeakSize; % calculate period!!!
+        
+        %period = (curve(end,1) - curve(1,1))/length(peaks(:,2));
+        
+        
+        %Determine average height between adjacent bases
+        for i = 2:minSize
+            basewidth(i-1) = (troughs(i,1)-troughs((i-1),1));
+            baseheight(i-1) = (troughs(i,2)+troughs((i-1),2))/2;
+        end
+        
+        %Prepare initial parameters for export
+        % expoData1 = [curveNum maxSize avgBaseline(1) avgPeak(1) deltaR(1) period(1) threshold];
+        
+        %Determine amplitude for each pulse using base midpoint
+        size(peaks(:,2))
+        size(baseheight(:))
+        amplitudes = (peaks(:,2) - baseheight(:));
+        amplitudes = transpose(amplitudes);
+        
+        %Ask user for plateau definition
+        % ampperc = input('At what percent of the amplitude would you like \nto analyze the plateau fraction? (default 50) ');
+        % if isempty(ampperc)
+        %     ampperc = 50;
+        % elseif (ampperc > 95)
+        %     ampperc = 95;
+        % elseif (ampperc < 5)
+        %     ampperc = 5;
+        % end
+        ampperc=50;
+        fprintf('Analyzing at %d%% of the amplitude ...\n',ampperc);
+        ampperc = (ampperc/100);
+        
+        %Create array of plateau heights
+        platheight = (ampperc.*amplitudes)+baseheight;
+        
+        %Determine length of curve
+        curveSize = length(curve(:,1));
+        
+        %Scan curve for min and peak indicies
+        curMin = 1;
+        curMax = 1;
+        for i=1:curveSize
+            if (curMin <= minSize)
+                if (curve(i,1) == troughs(curMin,1))
+                    minIndicies = [minIndicies i];
+                    curMin = curMin + 1;
+                end
+            end
+            if (curMax <= maxSize)
+                if (curve(i,1) == peaks(curMax,1))
+                    maxIndicies = [maxIndicies i];
+                    curMax = curMax + 1;
+                end
+            end
+        end
+        
+        if doplots
+            % f2 = figure(2);
+            % clf;
+            % set(f2, 'Position', [660 50 600 370]);
+            % assignin("base","curve",curve)
+            plot(app.UIAxesAnal,curve(:,1),curve(:,2));
+            hold(app.UIAxesAnal,"on")
+            % title(['Perceval curve ', num2str(curveNum)]);
+            % xlabel('Time (min)');
+            % ylabel(strcat('Perceval Ratio'));
+            % grid on;
+            
+            % hold on;
+        end
+
+        pArea = app.platarea(baseheight,platheight,troughs,peaks,curve);
+        
+        if doplots
+            % hold(app.UIAxesAnal,'on')
+            plot(app.UIAxesAnal,peaks(:,1),peaks(:,2), 'Color', 'r', 'Marker', '*', 'LineStyle', 'none');
+            plot(app.UIAxesAnal,troughs(:,1),troughs(:,2), 'Color', 'g', 'Marker', '*', 'LineStyle', 'none');
+        end
+
+        for pulse=1:maxSize
+            inc_high = minIndicies(pulse);
+            for i=minIndicies(pulse):maxIndicies(pulse);
+                inc_low = inc_high;
+                low_t = i - 1;
+                inc_high = curve(i,2);
+                if (inc_high >= platheight(pulse))
+                    break
+                end
+            end
+            
+            %calculate slope
+            m = (inc_high - inc_low)*10;
+            %calculate difference between lower bound and platheight
+            p_diff = platheight(pulse) - inc_low;
+            %calculate difference between lower bound time and platheight time
+            t_diff = p_diff/m;
+            %estimate location of edge
+            left_edge(pulse) = curve(low_t,1) + t_diff;
+            if doplots
+                hb = line(app.UIAxesAnal,[troughs(pulse,1) troughs((pulse+1),1)], [baseheight(pulse) baseheight(pulse)], 'Color', 'g','LineWidth',2);
+                plot(app.UIAxesAnal,troughs(pulse,1),baseheight(pulse), 'Color', 'g', 'Marker', 'O', 'LineStyle', 'none');
+                plot(app.UIAxesAnal,troughs(pulse,1),baseheight(pulse), 'Color', 'g', 'Marker', '+', 'LineStyle', 'none');
+                plot(app.UIAxesAnal,troughs((pulse+1),1),baseheight(pulse), 'Color', 'g', 'Marker', 'O', 'LineStyle', 'none');
+                plot(app.UIAxesAnal,troughs((pulse+1),1),baseheight(pulse), 'Color', 'g', 'Marker', '+', 'LineStyle', 'none');
+                line(app.UIAxesAnal,[troughs(pulse,1) troughs(pulse,1)], [troughs(pulse,2) baseheight(pulse)], 'Color', 'c');
+                line(app.UIAxesAnal,[troughs((pulse+1),1) troughs((pulse+1),1)], [baseheight(pulse) troughs((pulse+1),2)], 'Color', 'c');
+                plot(app.UIAxesAnal,left_edge(pulse),platheight(pulse), 'Color', 'm', 'Marker', 'O', 'LineStyle', 'none');
+                plot(app.UIAxesAnal,left_edge(pulse),platheight(pulse), 'Color', 'm', 'Marker', '+', 'LineStyle', 'none');
+            end
+        end
+        
+        for pulse=maxSize:-1:1
+            inc_high = minIndicies(pulse+1);
+            for i=minIndicies(pulse+1):-1:maxIndicies(pulse);
+                inc_low = inc_high;
+                low_t = i + 1;
+                inc_high = curve(i,2);
+                if (inc_high >= platheight(pulse))
+                    break
+                end
+            end
+            
+            %calculate slope
+            m = (inc_high - inc_low)*10;
+            %calculate difference between lower bound and 40percent
+            p_diff = platheight(pulse) - inc_low;
+            %calculate difference between lower bound time and 40percent time
+            t_diff = p_diff/m;
+            %estimate location of edge
+            right_edge(pulse) = curve(low_t,1) - t_diff;
+            if doplots
+                plot(app.UIAxesAnal,right_edge(pulse),platheight(pulse), 'Color', 'm', 'Marker', 'O', 'LineStyle', 'none');
+                plot(app.UIAxesAnal,right_edge(pulse),platheight(pulse), 'Color', 'm', 'Marker', '+', 'LineStyle', 'none');
+                hp = line(app.UIAxesAnal,[left_edge(pulse) right_edge(pulse)], [platheight(pulse) platheight(pulse)], 'Color', 'm','LineWidth',2);
+            end
+        end
+
+        if doplots
+            legend(app.UIAxesAnal,[hp,hb],'Plateau Width','Base Width','Location','Northwest');
+            % title(['Curve ', curveNum]);
+            % xlabel('Time (min)');
+            % ylabel('Fura-2  Ratio');
+            hold(app.UIAxesAnal,'off');
+        end
+
+        %Create an array of plateau widths and plateau fractions
+        platwidth = right_edge - left_edge;
+        pf = platwidth ./ basewidth;
+        
+        % %Determine average plateau width
+        % avgpf = mean(pf);
+        % avgpa = mean(pArea);
+        
+        %Determine average plateau width added by ss 10-9-19
+        avgpf = mean(pf);
+        avgpa = mean(pArea);
+        avgpw = mean(platwidth);
+        avgbw = mean(basewidth);
+        
+        for m =1:PeakSize
+            Silencep(1:m)=(basewidth(1:m)-platwidth(1:m));
+        end
+        
+        avgsp = mean(Silencep);
+        
+        % expoData1 = [expoData1 avgpf(1) avgpa(1) avgpw(1) avgbw(1) avgsp(1)];
+
+        end
+                
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
     end
@@ -630,6 +892,8 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                 return;
             end
             fullsavefile = fullfile(app.datapath,app.SaveFileEditField.Value);
+            [~,fullsavematfile,~]=fileparts(fullsavefile)
+            % fullsavematfile = fullsavematfile+'.mat'
             if isfile(fullsavefile)
                % file already exists, ask if you want to overwrite
                msg = "File exists, overwrite? Otherwise cancel and update filename before saving";
@@ -639,14 +903,16 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                     "DefaultOption",2);
                if selection == "Overwrite"
                    writetable(app.OutTable,fullsavefile)
+                   save((fullsavematfile+".mat"))
                end
             else
                 writetable(app.OutTable,fullsavefile)
+                save((fullsavematfile+".mat"))
             end
-            assignin('base','xdata',app.UITableAnalVals.Data.xdata);
-            assignin('base','ydata',app.UITableAnalVals.Data.ydata);
-            assignin('base','peaks',app.UITableAnalVals.Data.peaks);
-            assignin('base','troughs',app.UITableAnalVals.Data.troughs);
+            % assignin('base','xdata',app.UITableAnalVals.Data.xdata);
+            % assignin('base','ydata',app.UITableAnalVals.Data.ydata);
+            % assignin('base','peaks',app.UITableAnalVals.Data.peaks);
+            % assignin('base','troughs',app.UITableAnalVals.Data.troughs);
             
         end
 
@@ -686,6 +952,18 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         function SheetDropDownValueChanged(app, event)
             value = app.SheetDropDown.Value;
             app.initializeTables()
+        end
+
+        % Button pushed function: LoadstateButton
+        function LoadstateButtonPushed(app, event)
+            % [filename, path]=uigetfile({'*.mat'}, 'Select MAT File');
+            % load(fullfile(path,filename));
+        end
+
+        % Value changed function: ShowPlatsCheckBox
+        function ShowPlatsCheckBoxValueChanged(app, event)
+            value = app.ShowPlatsCheckBox.Value;
+            
         end
     end
 
@@ -743,7 +1021,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
 
             % Create UITableAnalVals
             app.UITableAnalVals = uitable(app.ControlsPanel);
-            app.UITableAnalVals.ColumnName = {'Region'; 'TWindow'; 'Threshold'; 'Ignore'; 'tmin'; 'tmax'; 'tminind'; 'tmaxind'; 'xdata'; 'ydata'; 'peaks'; 'troughs'};
+            app.UITableAnalVals.ColumnName = {'Region'; 'TWindow'; 'Threshold'; 'Ignore'; 'tmin'; 'tmax'; 'tminind'; 'tmaxind'; 'xdata'; 'ydata'; 'peaks'; 'troughs'; 'aveWavelet'};
             app.UITableAnalVals.RowName = {};
             app.UITableAnalVals.ColumnEditable = [false false true true false false false false];
             app.UITableAnalVals.CellEditCallback = createCallbackFcn(app, @UITableAnalValsCellEdit, true);
@@ -791,6 +1069,12 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.SheetDropDown.ValueChangedFcn = createCallbackFcn(app, @SheetDropDownValueChanged, true);
             app.SheetDropDown.Position = [94 430 100 22];
             app.SheetDropDown.Value = 'Sheet1';
+
+            % Create ShowPlatsCheckBox
+            app.ShowPlatsCheckBox = uicheckbox(app.ControlsPanel);
+            app.ShowPlatsCheckBox.ValueChangedFcn = createCallbackFcn(app, @ShowPlatsCheckBoxValueChanged, true);
+            app.ShowPlatsCheckBox.Text = 'Show Plats';
+            app.ShowPlatsCheckBox.Position = [134 334 82 22];
 
             % Create TabGroup
             app.TabGroup = uitabgroup(app.GridLayout);
@@ -849,14 +1133,21 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             % Create SaveFileEditField
             app.SaveFileEditField = uieditfield(app.DataSummaryPanel, 'text');
             app.SaveFileEditField.ValueChangedFcn = createCallbackFcn(app, @SaveFileEditFieldValueChanged2, true);
-            app.SaveFileEditField.Position = [124 4 397 22];
+            app.SaveFileEditField.Position = [124 6 304 20];
 
             % Create UITableOutput
             app.UITableOutput = uitable(app.DataSummaryPanel);
-            app.UITableOutput.ColumnName = {'Region'; 'nPeaks'; 'Baseline'; 'maxPeak'; 'PeakAmplitude'; 'Period'; 'Threshold'; 'PlatFrac'; 'ActiveArea'; 'AvePlatWidth'; 'AveBaseWidth'; 'SlientPhase'; 'AveYval'; 'Notes'};
+            app.UITableOutput.ColumnName = {'Region'; 'nPeaks'; 'avgBaseline'; 'avgPeak'; 'avgPeakAmplitude'; 'Period'; 'Threshold'; 'PlatFrac'; 'ActiveArea'; 'AvePlatWidth'; 'AveBaseWidth'; 'SlientPhase'; 'AveYval'; 'Notes'};
             app.UITableOutput.RowName = {};
             app.UITableOutput.ColumnEditable = [false false false false false false false false false false false false false true];
             app.UITableOutput.Position = [5 38 516 248];
+
+            % Create LoadstateButton
+            app.LoadstateButton = uibutton(app.DataSummaryPanel, 'push');
+            app.LoadstateButton.ButtonPushedFcn = createCallbackFcn(app, @LoadstateButtonPushed, true);
+            app.LoadstateButton.BackgroundColor = [0.149 0.149 0.149];
+            app.LoadstateButton.Position = [440 4 73 23];
+            app.LoadstateButton.Text = 'Load state';
 
             % Create UITableTimeWindows
             app.UITableTimeWindows = uitable(app.GridLayout);
