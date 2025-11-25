@@ -619,8 +619,6 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         % expoData1 = [curveNum maxSize avgBaseline(1) avgPeak(1) deltaR(1) period(1) threshold];
         
         %Determine amplitude for each pulse using base midpoint
-        size(peaks(:,2))
-        size(baseheight(:))
         amplitudes = (peaks(:,2) - baseheight(:));
         amplitudes = transpose(amplitudes);
         
@@ -894,6 +892,11 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             fullsavefile = fullfile(app.datapath,app.SaveFileEditField.Value);
             [~,fullsavematfile,~]=fileparts(fullsavefile)
             % fullsavematfile = fullsavematfile+'.mat'
+            
+            % temp table to store region data in excel sheets
+            t = table()
+            regions2output = find(app.UITableAnalVals.Data.Ignore==false);
+            
             if isfile(fullsavefile)
                % file already exists, ask if you want to overwrite
                msg = "File exists, overwrite? Otherwise cancel and update filename before saving";
@@ -903,11 +906,33 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                     "DefaultOption",2);
                if selection == "Overwrite"
                    writetable(app.OutTable,fullsavefile)
-                   save((fullsavematfile+".mat"))
+                   for row=1:size(app.OutTable,1)
+                    t=table()
+                    % t.peaksX = app.UITableAnalVals.Data.peaks{row}(:,1);
+                    % t.peaksY = app.UITableAnalVals.Data.peaks{row}(:,2);
+                    % t.troughsX = app.UITableAnalVals.Data.troughs{row}(:,1);
+                    % t.troughsY = app.UITableAnalVals.Data.troughs{row}(:,2);
+                    t.freguqncy = app.UITableAnalVals.Data.aveWavelet{row}(:,1);
+                    t.aveWavelet = app.UITableAnalVals.Data.aveWavelet{row}(:,2);
+                    writetable(t,fullsavefile,Sheet=app.OutTable.Region{row}(1:3));
+                   end
+                   % save((fullsavematfile+".mat"))
                end
             else
                 writetable(app.OutTable,fullsavefile)
-                save((fullsavematfile+".mat"))
+                % assignin('base','OutTable',app.OutTable);
+                % assignin('base','AnalTable',app.UITableAnalVals.Data);
+                for row=1:size(app.OutTable,1)
+                    t=table()
+                    % t.peaksX = app.UITableAnalVals.Data.peaks{row}(:,1);
+                    % t.peaksY = app.UITableAnalVals.Data.peaks{row}(:,2);
+                    % t.troughsX = app.UITableAnalVals.Data.troughs{row}(:,1);
+                    % t.troughsY = app.UITableAnalVals.Data.troughs{row}(:,2);
+                    t.freguqncy = app.UITableAnalVals.Data.aveWavelet{row}(:,1);
+                    t.aveWavelet = app.UITableAnalVals.Data.aveWavelet{row}(:,2);
+                    writetable(t,fullsavefile,Sheet=app.OutTable.Region{row}(1:3));
+                end
+                % save((fullsavematfile+".mat"))
             end
             % assignin('base','xdata',app.UITableAnalVals.Data.xdata);
             % assignin('base','ydata',app.UITableAnalVals.Data.ydata);
