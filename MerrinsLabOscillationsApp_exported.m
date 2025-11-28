@@ -4,15 +4,15 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
     properties (Access = public)
         UIFigure                  matlab.ui.Figure
         GridLayout                matlab.ui.container.GridLayout
+        LoadstateButton           matlab.ui.control.Button
+        SaveFileEditField         matlab.ui.control.EditField
+        SaveOutputButton          matlab.ui.control.Button
         ChooseFiletoImportButton  matlab.ui.control.Button
         FileNameEditField         matlab.ui.control.EditField
         UITableImported           matlab.ui.control.Table
         UITableTimeWindows        matlab.ui.control.Table
         DataSummaryPanel          matlab.ui.container.Panel
-        LoadstateButton           matlab.ui.control.Button
         UITableOutput             matlab.ui.control.Table
-        SaveFileEditField         matlab.ui.control.EditField
-        SaveOutputButton          matlab.ui.control.Button
         TabGroup                  matlab.ui.container.TabGroup
         PlotsTab                  matlab.ui.container.Tab
         UIAxesAnal                matlab.ui.control.UIAxes
@@ -21,17 +21,17 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         UIAxesWVLTx               matlab.ui.control.UIAxes
         UIAxesWVLT                matlab.ui.control.UIAxes
         ControlsPanel             matlab.ui.container.Panel
+        UpdateOutputButton        matlab.ui.control.Button
         ShowPlatsCheckBox         matlab.ui.control.CheckBox
         SheetDropDown             matlab.ui.control.DropDown
-        SheetDropDownLabel        matlab.ui.control.Label
+        SheetLabel                matlab.ui.control.Label
         UsefindpeaksCheckBox      matlab.ui.control.CheckBox
         IgnoreOutliersCheckBox    matlab.ui.control.CheckBox
-        UpdateOutputButton        matlab.ui.control.Button
         DetrendCheckBox           matlab.ui.control.CheckBox
-        UITableAnalVals           matlab.ui.control.Table
         Instructions              matlab.ui.control.Label
         SensorTypeDropDown        matlab.ui.control.DropDown
-        SensorTypeDropDownLabel   matlab.ui.control.Label
+        SensorTypeLabel           matlab.ui.control.Label
+        UITableAnalVals           matlab.ui.control.Table
         UIAxesSelector            matlab.ui.control.UIAxes
         ContextMenu               matlab.ui.container.ContextMenu
         AddRow                    matlab.ui.container.Menu
@@ -178,7 +178,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         end
 
         function updateUITableAnalVals(app)
-            %TableAnalVals =  app.UITableAnalVals.Data;
+                        %TableAnalVals =  app.UITableAnalVals.Data;
             nTWindows = size(app.UITableTimeWindows.Data,1);
             % For each time window row, make a set of nRegions of rows to
             % the analysis table
@@ -196,7 +196,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                 app.UITableAnalVals.Data.tminind((ii-1)*nRegions+[1:nRegions])= tminind; % store these vals in each row
                 app.UITableAnalVals.Data.tmaxind((ii-1)*nRegions+[1:nRegions])= tmaxind;
                 
-                if tminind<tmaxind % if the window start is after the end, just choose the end value
+                if tminind<tmaxind % if the window start is after the end, just chcose the end value
                     xdata=app.UITableImported.Data{tminind:tmaxind,app.timecol};
                 else
                     xdata=app.UITableImported.Data{tmaxind,app.timecol};
@@ -1006,8 +1006,8 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
 
             % Create GridLayout
             app.GridLayout = uigridlayout(app.UIFigure);
-            app.GridLayout.ColumnWidth = {'5x', '10x'};
-            app.GridLayout.RowHeight = {'fit', '3x', '2x', '8x', '7x'};
+            app.GridLayout.ColumnWidth = {'2x', '3x', '5x', '4x', '1x'};
+            app.GridLayout.RowHeight = {'fit', '3x', '2x', 180, '6x', '6x', 'fit'};
 
             % Create UIAxesSelector
             app.UIAxesSelector = uiaxes(app.GridLayout);
@@ -1015,97 +1015,98 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             xlabel(app.UIAxesSelector, 'X')
             ylabel(app.UIAxesSelector, 'Y')
             zlabel(app.UIAxesSelector, 'Z')
-            app.UIAxesSelector.Layout.Row = [2 3];
-            app.UIAxesSelector.Layout.Column = 2;
+            app.UIAxesSelector.Layout.Row = [1 3];
+            app.UIAxesSelector.Layout.Column = [3 5];
+
+            % Create UITableAnalVals
+            app.UITableAnalVals = uitable(app.GridLayout);
+            app.UITableAnalVals.ColumnName = {'Region'; 'TWindow'; 'Threshold'; 'Ignore'; 'tmin'; 'tmax'; 'tminind'; 'tmaxind'; 'xdata'; 'ydata'; 'peaks'; 'troughs'; 'aveWavelet'};
+            app.UITableAnalVals.RowName = {};
+            app.UITableAnalVals.ColumnEditable = [false false true true false false false false];
+            app.UITableAnalVals.CellEditCallback = createCallbackFcn(app, @UITableAnalValsCellEdit, true);
+            app.UITableAnalVals.SelectionChangedFcn = createCallbackFcn(app, @UITableAnalValsSelectionChanged, true);
+            app.UITableAnalVals.Layout.Row = 5;
+            app.UITableAnalVals.Layout.Column = [1 2];
 
             % Create ControlsPanel
             app.ControlsPanel = uipanel(app.GridLayout);
             app.ControlsPanel.AutoResizeChildren = 'off';
             app.ControlsPanel.Title = 'Controls';
             app.ControlsPanel.Layout.Row = 4;
-            app.ControlsPanel.Layout.Column = 1;
+            app.ControlsPanel.Layout.Column = [1 2];
 
-            % Create SensorTypeDropDownLabel
-            app.SensorTypeDropDownLabel = uilabel(app.ControlsPanel);
-            app.SensorTypeDropDownLabel.HorizontalAlignment = 'right';
-            app.SensorTypeDropDownLabel.Position = [13 403 71 22];
-            app.SensorTypeDropDownLabel.Text = 'Sensor Type';
+            % Create SensorTypeLabel
+            app.SensorTypeLabel = uilabel(app.ControlsPanel);
+            app.SensorTypeLabel.HorizontalAlignment = 'right';
+            app.SensorTypeLabel.Position = [19 104 75 22];
+            app.SensorTypeLabel.Text = 'Sensor Type:';
 
             % Create SensorTypeDropDown
             app.SensorTypeDropDown = uidropdown(app.ControlsPanel);
             app.SensorTypeDropDown.Items = {'None', 'Calcium', 'Lactate', 'ATP/ADP'};
             app.SensorTypeDropDown.ValueChangedFcn = createCallbackFcn(app, @SensorTypeDropDownValueChanged, true);
             app.SensorTypeDropDown.Tooltip = {'Select the sensor'};
-            app.SensorTypeDropDown.Position = [99 403 100 22];
+            app.SensorTypeDropDown.Position = [109 104 100 22];
             app.SensorTypeDropDown.Value = 'None';
 
             % Create Instructions
             app.Instructions = uilabel(app.ControlsPanel);
-            app.Instructions.Position = [249 352 280 103];
+            app.Instructions.Position = [240 50 280 103];
             app.Instructions.Text = {'Instructions:'; '1. Choose file, select sheet from dropdown '; '2. Update time window start and end'; '3. Right click table to add or remove time windows'; '4. Select row(s) below to plot, update params'; '6. Click Update Ouput to refresh output table'; '7. Save to output file'};
-
-            % Create UITableAnalVals
-            app.UITableAnalVals = uitable(app.ControlsPanel);
-            app.UITableAnalVals.ColumnName = {'Region'; 'TWindow'; 'Threshold'; 'Ignore'; 'tmin'; 'tmax'; 'tminind'; 'tmaxind'; 'xdata'; 'ydata'; 'peaks'; 'troughs'; 'aveWavelet'};
-            app.UITableAnalVals.RowName = {};
-            app.UITableAnalVals.ColumnEditable = [false false true true false false false false];
-            app.UITableAnalVals.CellEditCallback = createCallbackFcn(app, @UITableAnalValsCellEdit, true);
-            app.UITableAnalVals.SelectionChangedFcn = createCallbackFcn(app, @UITableAnalValsSelectionChanged, true);
-            app.UITableAnalVals.Position = [5 48 516 277];
 
             % Create DetrendCheckBox
             app.DetrendCheckBox = uicheckbox(app.ControlsPanel);
             app.DetrendCheckBox.ValueChangedFcn = createCallbackFcn(app, @DetrendCheckBoxValueChanged, true);
             app.DetrendCheckBox.Tooltip = {'Flatten the curves by removing the slope.'};
             app.DetrendCheckBox.Text = 'Detrend';
-            app.DetrendCheckBox.Position = [19 356 65 22];
+            app.DetrendCheckBox.Position = [19 56 65 22];
             app.DetrendCheckBox.Value = true;
-
-            % Create UpdateOutputButton
-            app.UpdateOutputButton = uibutton(app.ControlsPanel, 'push');
-            app.UpdateOutputButton.ButtonPushedFcn = createCallbackFcn(app, @UpdateOutputButtonPushed, true);
-            app.UpdateOutputButton.BackgroundColor = [0.0667 0.4431 0.7451];
-            app.UpdateOutputButton.Position = [13 13 259 23];
-            app.UpdateOutputButton.Text = 'Update Output with Current Analysis Params';
 
             % Create IgnoreOutliersCheckBox
             app.IgnoreOutliersCheckBox = uicheckbox(app.ControlsPanel);
             app.IgnoreOutliersCheckBox.ValueChangedFcn = createCallbackFcn(app, @IgnoreOutliersCheckBoxValueChanged, true);
             app.IgnoreOutliersCheckBox.Tooltip = {'Remove artifacts (shown as x in preview window) by identifying peaks that occur across all regions, are less than 1 timepoint wide, and are more than 2 standard deviations in prominence'};
             app.IgnoreOutliersCheckBox.Text = 'Ignore Outliers';
-            app.IgnoreOutliersCheckBox.Position = [19 379 100 22];
+            app.IgnoreOutliersCheckBox.Position = [19 79 100 22];
 
             % Create UsefindpeaksCheckBox
             app.UsefindpeaksCheckBox = uicheckbox(app.ControlsPanel);
             app.UsefindpeaksCheckBox.ValueChangedFcn = createCallbackFcn(app, @UsefindpeaksCheckBoxValueChanged, true);
             app.UsefindpeaksCheckBox.Tooltip = {'Peak and trough detection method:'; 'Default is to use the code developed by S. Sdao, but if checked, use the matlab findpeaks() method instead (JDR)'};
             app.UsefindpeaksCheckBox.Text = 'Use findpeaks()';
-            app.UsefindpeaksCheckBox.Position = [19 332 105 22];
+            app.UsefindpeaksCheckBox.Position = [19 33 105 22];
 
-            % Create SheetDropDownLabel
-            app.SheetDropDownLabel = uilabel(app.ControlsPanel);
-            app.SheetDropDownLabel.HorizontalAlignment = 'right';
-            app.SheetDropDownLabel.Position = [43 430 36 22];
-            app.SheetDropDownLabel.Text = 'Sheet';
+            % Create SheetLabel
+            app.SheetLabel = uilabel(app.ControlsPanel);
+            app.SheetLabel.HorizontalAlignment = 'right';
+            app.SheetLabel.Position = [19 131 39 22];
+            app.SheetLabel.Text = 'Sheet:';
 
             % Create SheetDropDown
             app.SheetDropDown = uidropdown(app.ControlsPanel);
             app.SheetDropDown.Items = {'Sheet1'};
             app.SheetDropDown.ValueChangedFcn = createCallbackFcn(app, @SheetDropDownValueChanged, true);
-            app.SheetDropDown.Position = [94 430 100 22];
+            app.SheetDropDown.Position = [73 131 100 22];
             app.SheetDropDown.Value = 'Sheet1';
 
             % Create ShowPlatsCheckBox
             app.ShowPlatsCheckBox = uicheckbox(app.ControlsPanel);
             app.ShowPlatsCheckBox.ValueChangedFcn = createCallbackFcn(app, @ShowPlatsCheckBoxValueChanged, true);
             app.ShowPlatsCheckBox.Text = 'Show Plats';
-            app.ShowPlatsCheckBox.Position = [134 334 82 22];
+            app.ShowPlatsCheckBox.Position = [134 33 82 22];
+
+            % Create UpdateOutputButton
+            app.UpdateOutputButton = uibutton(app.ControlsPanel, 'push');
+            app.UpdateOutputButton.ButtonPushedFcn = createCallbackFcn(app, @UpdateOutputButtonPushed, true);
+            app.UpdateOutputButton.BackgroundColor = [0.0667 0.4431 0.7451];
+            app.UpdateOutputButton.Position = [19 8 259 23];
+            app.UpdateOutputButton.Text = 'Update Output with Current Analysis Params';
 
             % Create TabGroup
             app.TabGroup = uitabgroup(app.GridLayout);
             app.TabGroup.AutoResizeChildren = 'off';
-            app.TabGroup.Layout.Row = [4 5];
-            app.TabGroup.Layout.Column = 2;
+            app.TabGroup.Layout.Row = [4 6];
+            app.TabGroup.Layout.Column = [3 5];
 
             % Create PlotsTab
             app.PlotsTab = uitab(app.TabGroup);
@@ -1118,7 +1119,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             xlabel(app.UIAxesAnal, 'X')
             ylabel(app.UIAxesAnal, 'Y')
             zlabel(app.UIAxesAnal, 'Z')
-            app.UIAxesAnal.Position = [0 1 1045 883];
+            app.UIAxesAnal.Position = [0 31 944 833];
 
             % Create WaveletviewTab
             app.WaveletviewTab = uitab(app.TabGroup);
@@ -1131,48 +1132,29 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             xlabel(app.UIAxesWVLT, 'X')
             ylabel(app.UIAxesWVLT, 'Y')
             zlabel(app.UIAxesWVLT, 'Z')
-            app.UIAxesWVLT.Position = [1 0 793 685];
+            app.UIAxesWVLT.Position = [1 31 731 634];
 
             % Create UIAxesWVLTx
             app.UIAxesWVLTx = uiaxes(app.WaveletviewTab);
-            app.UIAxesWVLTx.Position = [1 684 793 200];
+            app.UIAxesWVLTx.Position = [1 664 731 200];
 
             % Create UIAxesWVLTy
             app.UIAxesWVLTy = uiaxes(app.WaveletviewTab);
-            app.UIAxesWVLTy.Position = [793 0 252 685];
+            app.UIAxesWVLTy.Position = [731 31 212 634];
 
             % Create DataSummaryPanel
             app.DataSummaryPanel = uipanel(app.GridLayout);
             app.DataSummaryPanel.AutoResizeChildren = 'off';
             app.DataSummaryPanel.Title = 'Data Summary';
-            app.DataSummaryPanel.Layout.Row = 5;
-            app.DataSummaryPanel.Layout.Column = 1;
-
-            % Create SaveOutputButton
-            app.SaveOutputButton = uibutton(app.DataSummaryPanel, 'push');
-            app.SaveOutputButton.ButtonPushedFcn = createCallbackFcn(app, @SaveOutputButtonPushed, true);
-            app.SaveOutputButton.BackgroundColor = [0.0667 0.4431 0.7451];
-            app.SaveOutputButton.Position = [13 4 100 23];
-            app.SaveOutputButton.Text = 'Save Output';
-
-            % Create SaveFileEditField
-            app.SaveFileEditField = uieditfield(app.DataSummaryPanel, 'text');
-            app.SaveFileEditField.ValueChangedFcn = createCallbackFcn(app, @SaveFileEditFieldValueChanged2, true);
-            app.SaveFileEditField.Position = [124 6 304 20];
+            app.DataSummaryPanel.Layout.Row = 6;
+            app.DataSummaryPanel.Layout.Column = [1 2];
 
             % Create UITableOutput
             app.UITableOutput = uitable(app.DataSummaryPanel);
             app.UITableOutput.ColumnName = {'Region'; 'nPeaks'; 'avgBaseline'; 'avgPeak'; 'avgPeakAmplitude'; 'Period'; 'Threshold'; 'PlatFrac'; 'ActiveArea'; 'AvePlatWidth'; 'AveBaseWidth'; 'SlientPhase'; 'AveYval'; 'Notes'};
             app.UITableOutput.RowName = {};
             app.UITableOutput.ColumnEditable = [false false false false false false false false false false false false false true];
-            app.UITableOutput.Position = [5 38 516 248];
-
-            % Create LoadstateButton
-            app.LoadstateButton = uibutton(app.DataSummaryPanel, 'push');
-            app.LoadstateButton.ButtonPushedFcn = createCallbackFcn(app, @LoadstateButtonPushed, true);
-            app.LoadstateButton.BackgroundColor = [0.149 0.149 0.149];
-            app.LoadstateButton.Position = [440 4 73 23];
-            app.LoadstateButton.Text = 'Load state';
+            app.UITableOutput.Position = [4 -1 516 248];
 
             % Create UITableTimeWindows
             app.UITableTimeWindows = uitable(app.GridLayout);
@@ -1182,7 +1164,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.UITableTimeWindows.RowStriping = 'off';
             app.UITableTimeWindows.CellEditCallback = createCallbackFcn(app, @UITableTimeWindowsCellEdit, true);
             app.UITableTimeWindows.Layout.Row = 3;
-            app.UITableTimeWindows.Layout.Column = 1;
+            app.UITableTimeWindows.Layout.Column = [1 2];
 
             % Create UITableImported
             app.UITableImported = uitable(app.GridLayout);
@@ -1191,7 +1173,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.UITableImported.SelectionType = 'column';
             app.UITableImported.SelectionChangedFcn = createCallbackFcn(app, @UITableImportedSelectionChanged, true);
             app.UITableImported.Layout.Row = 2;
-            app.UITableImported.Layout.Column = 1;
+            app.UITableImported.Layout.Column = [1 2];
 
             % Create FileNameEditField
             app.FileNameEditField = uieditfield(app.GridLayout, 'text');
@@ -1207,6 +1189,28 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.ChooseFiletoImportButton.Layout.Row = 1;
             app.ChooseFiletoImportButton.Layout.Column = 1;
             app.ChooseFiletoImportButton.Text = 'Choose File to Import';
+
+            % Create SaveOutputButton
+            app.SaveOutputButton = uibutton(app.GridLayout, 'push');
+            app.SaveOutputButton.ButtonPushedFcn = createCallbackFcn(app, @SaveOutputButtonPushed, true);
+            app.SaveOutputButton.BackgroundColor = [0.0667 0.4431 0.7451];
+            app.SaveOutputButton.Layout.Row = 7;
+            app.SaveOutputButton.Layout.Column = 1;
+            app.SaveOutputButton.Text = 'Save Output';
+
+            % Create SaveFileEditField
+            app.SaveFileEditField = uieditfield(app.GridLayout, 'text');
+            app.SaveFileEditField.ValueChangedFcn = createCallbackFcn(app, @SaveFileEditFieldValueChanged2, true);
+            app.SaveFileEditField.Layout.Row = 7;
+            app.SaveFileEditField.Layout.Column = 2;
+
+            % Create LoadstateButton
+            app.LoadstateButton = uibutton(app.GridLayout, 'push');
+            app.LoadstateButton.ButtonPushedFcn = createCallbackFcn(app, @LoadstateButtonPushed, true);
+            app.LoadstateButton.BackgroundColor = [0.149 0.149 0.149];
+            app.LoadstateButton.Layout.Row = 7;
+            app.LoadstateButton.Layout.Column = 5;
+            app.LoadstateButton.Text = 'Load state';
 
             % Create ContextMenu
             app.ContextMenu = uicontextmenu(app.UIFigure);
