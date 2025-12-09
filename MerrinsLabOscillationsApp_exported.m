@@ -57,7 +57,8 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         OutTable = table(); %store all the output info in this table
         TableData; % Table to hold values directly read from file
         artifacts; % 2 column vector of [locations peaks] of artifacts in the data to be ignored
-        timecol; % the column containing the time values (not always the first col
+        timecol; % the column containing the time values (not always the first col)
+        timeunits; 
         firstdatacol; % first column with data, assume it starts with #
     end
 
@@ -71,7 +72,10 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.UITableImported.ColumnName = app.TableData.Properties.VariableDescriptions;
             % identify columns that are data
             app.timecol = find(contains(app.TableData.Properties.VariableDescriptions,'Time'));
-            app.firstdatacol = find(contains(app.TableData.Properties.VariableDescriptions,'#'),1);
+            timeunitsstartindex = strfind(app.TableData.Properties.VariableDescriptions{app.timecol},'[');
+            timeunitsendindex = strfind(app.TableData.Properties.VariableDescriptions{app.timecol},']');
+            app.timeunits = app.TableData.Properties.VariableDescriptions{app.timecol}(timeunitsstartindex:timeunitsendindex);
+            app.firstdatacol = app.timecol+1; %find(contains(app.TableData.Properties.VariableDescriptions,'#'),1);
 
             % Identify artifacts. Assume that artifacts are present
             % across all regions, so use the mean of all regions. This
@@ -94,6 +98,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.cols2preview = app.firstdatacol; % start with first data column, update by selecting one or more collumns in the table later
             % app.alltimes = app.UITableImported.Data{:,1};
             app.alltimes = app.UITableImported.Data{:,app.timecol};
+            % assignin("base","tabledata",app.TableData)
             plot(app.UIAxesSelector,app.alltimes,app.UITableImported.Data{:,app.cols2preview});
             if app.artifacts % only plot the artifacts if they exist
             hold(app.UIAxesSelector,"on");
@@ -110,7 +115,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             % initialize a time window data table with the first time window add more later by adding rows
             startT = min(app.UITableImported.Data{:,app.timecol}); % use min and max instead of 1 and end to handle NaNs
             endT = max(app.UITableImported.Data{:,app.timecol});
-            app.UITableTimeWindows.Data = table({'Window 1'},{startT},{endT},'VariableNames',{'Time Window','start [s]','end [s]'});
+            app.UITableTimeWindows.Data = table({'Window 1'},{startT},{endT},'VariableNames',{'Time Window',['start ' app.timeunits],['end ' app.timeunits]});
 
             % initialize UITableAnalVals table
             % Note that this table includes region, time window, threshold and ignore flag. 
@@ -204,8 +209,13 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                 xdata=xdata-xdata(1); 
                 
                 % wavelet filter bank
-                fb = cwtfilterbank('wavelet','morse','SignalLength',length(xdata),...
+                if contains(app.timeunits, '[s]')
+                    fb = cwtfilterbank('wavelet','morse','SignalLength',length(xdata),...
                         'WaveletParameters',[3 60],'VoicesPerOctave',10,'SamplingPeriod',seconds((xdata(2)-xdata(1))), 'PeriodLimits',[seconds(10) seconds(600)]);
+                elseif contains(app.timeunits, '[min]')
+                    fb = cwtfilterbank('wavelet','morse','SignalLength',length(xdata),...
+                        'WaveletParameters',[3 60],'VoicesPerOctave',10,'SamplingPeriod',minutes((xdata(2)-xdata(1))), 'PeriodLimits',[minutes(10/60) minutes(600/60)]);
+                end                    
                     
                 app.UITableAnalVals.Data.xdata((ii-1)*nRegions+[1:nRegions])={xdata};
                 for row=1:nRegions
@@ -257,8 +267,8 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                     frq = 1./seconds(frq);
                     coi = 1./seconds(coi);
                     p   = 1./ frq;
-                    assignin("base","mcfs",mean(abs(cfs)'))
-                    assignin("base","frq",frq)
+                    % assignin("base","mcfs",mean(abs(cfs)'))
+                    % assignin("base","frq",frq)
                     app.UITableAnalVals.Data.aveWavelet((ii-1)*nRegions+row)={[frq mean(abs(cfs)')']};
 
 
@@ -397,14 +407,28 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             % continuous wavelet transform return a matrix of 60 x T.  The mean Row
             % 1-26 27-60
             
-
-            fb = cwtfilterbank('wavelet','morse','SignalLength',length(sig),...
-                'WaveletParameters',[3 60],'VoicesPerOctave',10,'SamplingPeriod',seconds((t(2)-t(1))), 'PeriodLimits',[seconds(10) seconds(600)]);
+            if contains(app.timeunits, '[s]')
+                    fb = cwtfilterbank('wavelet','morse','SignalLength',length(sig),...
+                        'WaveletParameters',[3 60],'VoicesPerOctave',10,'SamplingPeriod',seconds((t(2)-t(1))), 'PeriodLimits',[seconds(10) seconds(600)]);
+                    
+                    [cfs,frq,coi] = wt(fb,sig);
+                    frq = 1./seconds(frq);
+                    coi = 1./seconds(coi);
+                    p   = 1./ frq;
             
-            [cfs,frq,coi] = wt(fb,sig);
-            frq = 1./seconds(frq);
-            coi = 1./seconds(coi);
-            p   = 1./ frq;
+            elseif contains(app.timeunits, '[min]')
+                    fb = cwtfilterbank('wavelet','morse','SignalLength',length(sig),...
+                        'WaveletParameters',[3 60],'VoicesPerOctave',10,'SamplingPeriod',minutes((t(2)-t(1))), 'PeriodLimits',[minutes(10/60) minutes(600/60)]);
+            
+                    [cfs,frq,coi] = wt(fb,sig);
+                    frq = 1./minutes(frq);
+                    coi = 1./minutes(coi);
+                    p   = 1./ frq;
+            
+            end
+
+            
+            
             
             % for i=1:size(cfs,2)
             %    cfs( frq < coi(i), i) = 0;
@@ -833,6 +857,10 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         function UITableTimeWindowsCellEdit(app, event)
             indices = event.Indices;
             newData = event.NewData;
+            % assignin("base","timewinsa",app.UITableTimeWindows)
+            if app.UITableTimeWindows.Data{indices(1),2}{1}>=app.UITableTimeWindows.Data{indices(1),3}{1}
+                app.UITableTimeWindows.Data{indices(1),3}={app.UITableTimeWindows.Data{indices(1),2}{1}+.1}; % the values in the time window are cell arrays, so assign it that way
+            end
             app.updatePreviewPlot();
             app.updateUITableAnalVals();
             app.updateAnalPlot();
@@ -1158,7 +1186,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
 
             % Create UITableTimeWindows
             app.UITableTimeWindows = uitable(app.GridLayout);
-            app.UITableTimeWindows.ColumnName = {'Time Window'; 'Start [s]'; 'End [s]'};
+            app.UITableTimeWindows.ColumnName = {'Time Window'; 'Start'; 'End'};
             app.UITableTimeWindows.RowName = {};
             app.UITableTimeWindows.ColumnEditable = true;
             app.UITableTimeWindows.RowStriping = 'off';
@@ -1223,7 +1251,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             % Create DelRow
             app.DelRow = uimenu(app.ContextMenu);
             app.DelRow.MenuSelectedFcn = createCallbackFcn(app, @DelRowMenuSelected, true);
-            app.DelRow.Text = 'DelRow';
+            app.DelRow.Text = 'DelLastRow';
             
             % Assign app.ContextMenu
             app.UITableTimeWindows.ContextMenu = app.ContextMenu;
