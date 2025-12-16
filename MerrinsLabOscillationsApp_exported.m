@@ -292,21 +292,31 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             
             pks = app.UITableAnalVals.Data.peaks(regions2output);
             trs = app.UITableAnalVals.Data.troughs(regions2output);
-           
+            assignin("base","trs",trs)
+            assignin("base","pks",pks)
+            
 
-            tmp=cell2mat(cellfun(@size,pks,'UniformOutput',false)); 
-            app.OutTable.NPulses(:)=tmp(:,1);
+            tmp=cell2mat(cellfun(@size,pks,'UniformOutput',false))
+            app.OutTable.NPulses(:)=tmp(:,1)
 
-            tmp=cell2mat(cellfun(@mean,trs,'UniformOutput',false));
+            tmp=cellfun(@mean,trs,'UniformOutput',false); % can return NaN for some rows 
+            isnt = cellfun(@isempty, trs); % identify empty rows where mean returns nan
+            tmp(isnt) = {[NaN NaN]}; % turn {[NaN]} into {[NaN NaN]} so we can use cell2mat without dimension errors
+            tmp=cell2mat(tmp);
             app.OutTable.Baseline(:)=tmp(:,2);
 
-            tmp=cell2mat(cellfun(@mean,pks,'UniformOutput',false));
+            tmp=cellfun(@mean,pks,'UniformOutput',false); % can return NaN for some rows 
+            isnt = cellfun(@isempty, pks); % identify empty rows where mean returns nan
+            tmp(isnt) = {[NaN NaN]}; % turn {[NaN]} into {[NaN NaN]} so we can use cell2mat without dimension errors
+            tmp=cell2mat(tmp);
             app.OutTable.avgPeak(:)=tmp(:,2);
-
+            
             app.OutTable.peakAmplitude(:)=app.OutTable.avgPeak(:)-app.OutTable.Baseline(:);
 
-            tmp=cell2mat(cellfun(@size,pks,'UniformOutput',false));
-            app.OutTable.Period(:)=cellfun(@(x) x(end,1)-x(1,1),trs)./tmp(:,1);
+            tmp=cell2mat(cellfun(@size,pks,'UniformOutput',false))
+            isnt = tmp(:,2)==0; % rows with zero size pks
+            app.OutTable.Period(~isnt)=cellfun(@(x) x(end,1)-x(1,1),trs(~isnt))./tmp(~isnt,1);
+            app.OutTable.Period(isnt)=NaN;
 
             app.OutTable.Threshold(:)=app.UITableAnalVals.Data.Threshold(regions2output);
 
@@ -329,12 +339,14 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                 ydata = app.UITableAnalVals.Data.ydata(regions2output);
                 threshold = app.UITableAnalVals.Data.Threshold(regions2output);
                 for row=1:size(app.OutTable,1)
-                    [avgpf avgpa avgpw avgbw avgsp] = app.platfunction([xdata{row}, ydata{row}], 1, pks{row}, trs{row}, threshold(row));
-                    app.OutTable.PlatFraction(row)=avgpf;
-                    app.OutTable.ActiveArea(row)=avgpa;
-                    app.OutTable.AvePlatWidth(row)=avgpw;
-                    app.OutTable.AveBaseWidth(row)=avgbw;
-                    app.OutTable.SilentPhase(row)=avgsp;
+                    if size(pks{row})>1 & size(trs{row})>1 % only call platfunction if there are enough pks and trs 
+                        [avgpf avgpa avgpw avgbw avgsp] = app.platfunction([xdata{row}, ydata{row}], 1, pks{row}, trs{row}, threshold(row));
+                        app.OutTable.PlatFraction(row)=avgpf;
+                        app.OutTable.ActiveArea(row)=avgpa;
+                        app.OutTable.AvePlatWidth(row)=avgpw;
+                        app.OutTable.AveBaseWidth(row)=avgbw;
+                        app.OutTable.SilentPhase(row)=avgsp;
+                    end
                 end
             % end
             app.UITableOutput.Data = app.OutTable;
@@ -383,7 +395,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                 disp('failed to plot peaks and troughs')
             end
             hold(app.UIAxesAnal,'off');
-            if app.ShowPlatsCheckBox.Value
+            if app.ShowPlatsCheckBox.Value & size(peaks{1})>1 & size(troughs{1})>1
                 [avgpf avgpa avgpw avgbw avgsp] = app.platfunction([xs{1}, ys{1}], 1, peaks{1}, troughs{1}, 0); % this will recalculate the plateaus, but also plot them in the anal window for the first selected row only
             end
         end
