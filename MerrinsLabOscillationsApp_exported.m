@@ -425,9 +425,6 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             
             end
 
-            
-            
-            
             % for i=1:size(cfs,2)
             %    cfs( frq < coi(i), i) = 0;
             % end
@@ -931,33 +928,30 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                     "Options",["Overwrite","Cancel"], ...
                     "DefaultOption",2);
                if selection == "Overwrite"
-                   writetable(app.OutTable,fullsavefile)
-                   for row=1:size(app.OutTable,1)
+                    writetable(app.OutTable,fullsavefile)
                     t=table()
-                    % t.peaksX = app.UITableAnalVals.Data.peaks{row}(:,1);
-                    % t.peaksY = app.UITableAnalVals.Data.peaks{row}(:,2);
-                    % t.troughsX = app.UITableAnalVals.Data.troughs{row}(:,1);
-                    % t.troughsY = app.UITableAnalVals.Data.troughs{row}(:,2);
-                    t.freguqncy = app.UITableAnalVals.Data.aveWavelet{row}(:,1);
-                    t.aveWavelet = app.UITableAnalVals.Data.aveWavelet{row}(:,2);
-                    writetable(t,fullsavefile,Sheet=app.OutTable.Region{row}(1:3));
-                   end
-                   % save((fullsavematfile+".mat"))
+                    t.freguqncy = app.UITableAnalVals.Data.aveWavelet{1}(:,1);
+                    for row=1:size(app.OutTable,1)
+                        t.(app.OutTable{row,1}{1}) = app.UITableAnalVals.Data.aveWavelet{row}(:,2);
+                    end
+                    writetable(t,fullsavefile,Sheet="avg wavelet vals");
                end
             else
                 writetable(app.OutTable,fullsavefile)
                 % assignin('base','OutTable',app.OutTable);
                 % assignin('base','AnalTable',app.UITableAnalVals.Data);
+                t=table()
+                t.freguqncy = app.UITableAnalVals.Data.aveWavelet{1}(:,1);
                 for row=1:size(app.OutTable,1)
-                    t=table()
                     % t.peaksX = app.UITableAnalVals.Data.peaks{row}(:,1);
                     % t.peaksY = app.UITableAnalVals.Data.peaks{row}(:,2);
                     % t.troughsX = app.UITableAnalVals.Data.troughs{row}(:,1);
                     % t.troughsY = app.UITableAnalVals.Data.troughs{row}(:,2);
-                    t.freguqncy = app.UITableAnalVals.Data.aveWavelet{row}(:,1);
-                    t.aveWavelet = app.UITableAnalVals.Data.aveWavelet{row}(:,2);
-                    writetable(t,fullsavefile,Sheet=app.OutTable.Region{row}(1:3));
+                    t.(app.OutTable{row,1}{1}) = app.UITableAnalVals.Data.aveWavelet{row}(:,2);
                 end
+                % writetable(t,fullsavefile,Sheet=app.OutTable.Region{row}(1:3));
+                writetable(t,fullsavefile,Sheet="avg wavelet vals");
+                
                 % save((fullsavematfile+".mat"))
             end
             % assignin('base','xdata',app.UITableAnalVals.Data.xdata);
