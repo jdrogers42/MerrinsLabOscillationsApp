@@ -39,9 +39,9 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
     end
 
     
-    % This app written by J.D. Rogers <rogersjd@gmail.com> on Oct 11, 2025
+    % app written by J.D. Rogers <rogersjd@gmail.com> on Oct 11, 2025
     % Based on Merrins lab code, converted to GUI
-    % last updated: 20251122
+    % last updated: 20251216
 
 
     % shared variables across functions
@@ -51,7 +51,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         DialogChooseSheet;
         cols2preview; % which columns in the imported table to plot in the preview
         rows2plot=[1]; % which row in the AnalVal table to plot in the anal window 
-        alltimes;  % time in seconds for the entire data set
+        alltimes;  % time for the entire data set
         timewindows=table(); % table containing the start and end times for each time window
         datapath; % path where data is located and output is saved
         OutTable = table(); %store all the output info in this table
@@ -201,10 +201,10 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                 app.UITableAnalVals.Data.tminind((ii-1)*nRegions+[1:nRegions])= tminind; % store these vals in each row
                 app.UITableAnalVals.Data.tmaxind((ii-1)*nRegions+[1:nRegions])= tmaxind;
                 
-                if tminind<tmaxind % if the window start is after the end, just chcose the end value
+                if tminind<tmaxind % if the window start is after the end, just chose the end value
                     xdata=app.UITableImported.Data{tminind:tmaxind,app.timecol};
                 else
-                    xdata=app.UITableImported.Data{tmaxind,app.timecol};
+                    xdata=app.UITableImported.Data{tmaxind:end,app.timecol};
                 end
                 xdata=xdata-xdata(1); 
                 
@@ -231,12 +231,10 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                     else
                         [peaks,troughs] = app.peakdetect(ydata,threshold,xdata);
                         
-                        TroughSize = size(troughs);
-                        TroughSize = TroughSize(1); %grab the first value, the number of troughs.
-                        PeakSize = size(peaks);
-                        PeakSize = PeakSize(1);
+                        TroughSize = size(troughs,1); %grab the first value, the number of troughs.
+                        PeakSize = size(peaks,1);
 
-                        if(PeakSize ~= 0)
+                        if(PeakSize > 1) % changed to >1 to ensure we have room to subtract the end peaks below -- JDR
                             if (peaks(1,1) < troughs(1,1))
                                 peaks = peaks(2:PeakSize,:); %remove first peak point if it is before the first trough point
                                 PeakSize = PeakSize - 1; %adjust peakSize by -1
@@ -433,16 +431,16 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             % for i=1:size(cfs,2)
             %    cfs( frq < coi(i), i) = 0;
             % end
-            
+
             plot(app.UIAxesWVLTx, t,sig);
             %ylabel('Ca^2^+')
-            
+
             plot(app.UIAxesWVLTy,mean(abs(cfs(:,:))'),frq);
             set(app.UIAxesWVLTy,'yscale','log');
             %xlabel('cwt')
 
             pcolor(app.UIAxesWVLT,t,frq,abs(cfs),LineStyle='none');
-            shading interp;
+            % shading interp;
             %axis tight;
             set(app.UIAxesWVLT,'yscale','log');
             %xlabel('Time (s)');ylabel('Frequency (Hz)')
@@ -859,7 +857,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             newData = event.NewData;
             % assignin("base","timewinsa",app.UITableTimeWindows)
             if app.UITableTimeWindows.Data{indices(1),2}{1}>=app.UITableTimeWindows.Data{indices(1),3}{1}
-                app.UITableTimeWindows.Data{indices(1),3}={app.UITableTimeWindows.Data{indices(1),2}{1}+.1}; % the values in the time window are cell arrays, so assign it that way
+                app.UITableTimeWindows.Data{indices(1),3}={app.alltimes(end)}; % the values in the time window are cell arrays, so assign it that way
             end
             app.updatePreviewPlot();
             app.updateUITableAnalVals();
@@ -1186,7 +1184,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
 
             % Create UITableTimeWindows
             app.UITableTimeWindows = uitable(app.GridLayout);
-            app.UITableTimeWindows.ColumnName = {'Time Window'; 'Start'; 'End'};
+            app.UITableTimeWindows.ColumnName = {'Time Window Label'; 'Start time'; 'End time'};
             app.UITableTimeWindows.RowName = {};
             app.UITableTimeWindows.ColumnEditable = true;
             app.UITableTimeWindows.RowStriping = 'off';
