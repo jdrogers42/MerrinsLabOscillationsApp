@@ -349,6 +349,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                         app.OutTable.AveBaseWidth(row)=avgbw;
                         app.OutTable.SilentPhase(row)=avgsp;
                     end
+                    app.OutTable.AverageYval(row)=mean(ydata{row})
                 end
             % end
             app.UITableOutput.Data = app.OutTable;
@@ -942,8 +943,8 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                     "Options",["Overwrite","Cancel"], ...
                     "DefaultOption",2);
                if selection == "Overwrite"
-                    writetable(app.OutTable,fullsavefile)
-                    t=table()
+                    writetable(app.OutTable,fullsavefile);
+                    t=table();
                     t.frequency = app.UITableAnalVals.Data.aveWavelet{1}(:,1);
                     for row=1:size(app.OutTable,1)
                         t.(app.OutTable{row,1}{1}) = app.UITableAnalVals.Data.aveWavelet{row}(:,2);
@@ -1150,8 +1151,8 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.initialthreshfactor.Limits = [0 10];
             app.initialthreshfactor.ValueDisplayFormat = '%.2f';
             app.initialthreshfactor.ValueChangedFcn = createCallbackFcn(app, @initialthreshfactorValueChanged, true);
-            app.initialthreshfactor.Tooltip = {'Update the initial threshold value for all rows below in standard deviations (\sigma)'};
-            app.initialthreshfactor.Position = [338 4 43 22];
+            app.initialthreshfactor.Tooltip = {'Value of threshold factor for all rows below in ''standard deviations'''};
+            app.initialthreshfactor.Position = [340 4 43 22];
             app.initialthreshfactor.Value = 1;
 
             % Create updatethresholdsButton
@@ -1159,8 +1160,8 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.updatethresholdsButton.ButtonPushedFcn = createCallbackFcn(app, @updatethresholdsButtonPushed, true);
             app.updatethresholdsButton.BackgroundColor = [0.0667 0.4431 0.7451];
             app.updatethresholdsButton.FontColor = [1 1 1];
-            app.updatethresholdsButton.Tooltip = {'Update the initial threshold value for all rows below in standard deviations (\sigma)'};
-            app.updatethresholdsButton.Position = [215 4 115 23];
+            app.updatethresholdsButton.Tooltip = {'Update the threshold value for all rows below to the standard deviation times the threshold factor'};
+            app.updatethresholdsButton.Position = [218 4 115 23];
             app.updatethresholdsButton.Text = 'update thresholds:';
 
             % Create TabGroup
