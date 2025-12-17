@@ -4,6 +4,8 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
     properties (Access = public)
         UIFigure                  matlab.ui.Figure
         GridLayout                matlab.ui.container.GridLayout
+        UITableOutput             matlab.ui.control.Table
+        UpdateOutputButton        matlab.ui.control.Button
         LoadstateButton           matlab.ui.control.Button
         SaveFileEditField         matlab.ui.control.EditField
         SaveOutputButton          matlab.ui.control.Button
@@ -11,8 +13,6 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         FileNameEditField         matlab.ui.control.EditField
         UITableImported           matlab.ui.control.Table
         UITableTimeWindows        matlab.ui.control.Table
-        DataSummaryPanel          matlab.ui.container.Panel
-        UITableOutput             matlab.ui.control.Table
         TabGroup                  matlab.ui.container.TabGroup
         PlotsTab                  matlab.ui.container.Tab
         UIAxesAnal                matlab.ui.control.UIAxes
@@ -21,11 +21,10 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         UIAxesWVLTx               matlab.ui.control.UIAxes
         UIAxesWVLT                matlab.ui.control.UIAxes
         ControlsPanel             matlab.ui.container.Panel
-        UpdateOutputButton        matlab.ui.control.Button
+        peakmethod                matlab.ui.control.Switch
         ShowPlatsCheckBox         matlab.ui.control.CheckBox
         SheetDropDown             matlab.ui.control.DropDown
         SheetLabel                matlab.ui.control.Label
-        UsefindpeaksCheckBox      matlab.ui.control.CheckBox
         IgnoreOutliersCheckBox    matlab.ui.control.CheckBox
         DetrendCheckBox           matlab.ui.control.CheckBox
         Instructions              matlab.ui.control.Label
@@ -223,7 +222,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                     threshold = app.UITableAnalVals.Data.Threshold((ii-1)*nRegions+row);
                     
                     % Find peaks and troughs
-                    if (app.UsefindpeaksCheckBox.Value)
+                    if (app.peakmethod.Value=="findpeaks")
                         [pks,locs,widths,proms] = findpeaks(ydata,'MinPeakProminence',threshold,'MinPeakWidth',4);
                         peaks = [xdata(locs) pks];
                         [pks,locs,widths,proms] = findpeaks(-ydata,'MinPeakProminence',threshold,'MinPeakWidth',4);
@@ -296,8 +295,8 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             assignin("base","pks",pks)
             
 
-            tmp=cell2mat(cellfun(@size,pks,'UniformOutput',false))
-            app.OutTable.NPulses(:)=tmp(:,1)
+            tmp=cell2mat(cellfun(@size,pks,'UniformOutput',false));
+            app.OutTable.NPulses(:)=tmp(:,1);
 
             tmp=cellfun(@mean,trs,'UniformOutput',false); % can return NaN for some rows 
             isnt = cellfun(@isempty, trs); % identify empty rows where mean returns nan
@@ -313,7 +312,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             
             app.OutTable.peakAmplitude(:)=app.OutTable.avgPeak(:)-app.OutTable.Baseline(:);
 
-            tmp=cell2mat(cellfun(@size,pks,'UniformOutput',false))
+            tmp=cell2mat(cellfun(@size,pks,'UniformOutput',false));
             isnt = tmp(:,2)==0; % rows with zero size pks
             app.OutTable.Period(~isnt)=cellfun(@(x) x(end,1)-x(1,1),trs(~isnt))./tmp(~isnt,1);
             app.OutTable.Period(isnt)=NaN;
@@ -999,12 +998,6 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.updateAnalPlot();
         end
 
-        % Value changed function: UsefindpeaksCheckBox
-        function UsefindpeaksCheckBoxValueChanged(app, event)
-            value = app.UsefindpeaksCheckBox.Value;
-            app.updateUITableAnalVals();
-        end
-
         % Value changed function: SheetDropDown
         function SheetDropDownValueChanged(app, event)
             value = app.SheetDropDown.Value;
@@ -1022,6 +1015,13 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             value = app.ShowPlatsCheckBox.Value;
             
         end
+
+        % Value changed function: peakmethod
+        function peakmethodValueChanged(app, event)
+            value = app.peakmethod.Value;
+            app.updateUITableAnalVals();
+            app.updateAnalPlot();
+        end
     end
 
     % Component initialization
@@ -1033,13 +1033,13 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             % Create UIFigure and hide until all components are created
             app.UIFigure = uifigure('Visible', 'off');
             app.UIFigure.AutoResizeChildren = 'off';
-            app.UIFigure.Position = [100 100 1600 1280];
+            app.UIFigure.Position = [100 100 1644 962];
             app.UIFigure.Name = 'MATLAB App';
 
             % Create GridLayout
             app.GridLayout = uigridlayout(app.UIFigure);
             app.GridLayout.ColumnWidth = {'2x', '3x', '5x', '4x', '1x'};
-            app.GridLayout.RowHeight = {'fit', '3x', '2x', 180, '6x', '6x', 'fit'};
+            app.GridLayout.RowHeight = {'fit', '2x', '1x', 150, '2x', 'fit', '2x', 'fit'};
 
             % Create UIAxesSelector
             app.UIAxesSelector = uiaxes(app.GridLayout);
@@ -1070,7 +1070,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             % Create SensorTypeLabel
             app.SensorTypeLabel = uilabel(app.ControlsPanel);
             app.SensorTypeLabel.HorizontalAlignment = 'right';
-            app.SensorTypeLabel.Position = [19 104 75 22];
+            app.SensorTypeLabel.Position = [19 74 75 22];
             app.SensorTypeLabel.Text = 'Sensor Type:';
 
             % Create SensorTypeDropDown
@@ -1078,20 +1078,20 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.SensorTypeDropDown.Items = {'None', 'Calcium', 'Lactate', 'ATP/ADP'};
             app.SensorTypeDropDown.ValueChangedFcn = createCallbackFcn(app, @SensorTypeDropDownValueChanged, true);
             app.SensorTypeDropDown.Tooltip = {'Select the sensor'};
-            app.SensorTypeDropDown.Position = [109 104 100 22];
+            app.SensorTypeDropDown.Position = [109 74 100 22];
             app.SensorTypeDropDown.Value = 'None';
 
             % Create Instructions
             app.Instructions = uilabel(app.ControlsPanel);
-            app.Instructions.Position = [240 50 280 103];
-            app.Instructions.Text = {'Instructions:'; '1. Choose file, select sheet from dropdown '; '2. Update time window start and end'; '3. Right click table to add or remove time windows'; '4. Select row(s) below to plot, update params'; '6. Click Update Ouput to refresh output table'; '7. Save to output file'};
+            app.Instructions.Position = [235 20 250 103];
+            app.Instructions.Text = {'Instructions:'; '1. Choose file, select sheet from dropdown '; '2. Update time window start and end'; '3. Right click table to add / del time windows'; '4. Select row(s) below to plot, update params'; '6. Click Analyze to refresh output table'; '7. Save to output file'};
 
             % Create DetrendCheckBox
             app.DetrendCheckBox = uicheckbox(app.ControlsPanel);
             app.DetrendCheckBox.ValueChangedFcn = createCallbackFcn(app, @DetrendCheckBoxValueChanged, true);
             app.DetrendCheckBox.Tooltip = {'Flatten the curves by removing the slope.'};
             app.DetrendCheckBox.Text = 'Detrend';
-            app.DetrendCheckBox.Position = [19 56 65 22];
+            app.DetrendCheckBox.Position = [19 26 65 22];
             app.DetrendCheckBox.Value = true;
 
             % Create IgnoreOutliersCheckBox
@@ -1099,45 +1099,39 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.IgnoreOutliersCheckBox.ValueChangedFcn = createCallbackFcn(app, @IgnoreOutliersCheckBoxValueChanged, true);
             app.IgnoreOutliersCheckBox.Tooltip = {'Remove artifacts (shown as x in preview window) by identifying peaks that occur across all regions, are less than 1 timepoint wide, and are more than 2 standard deviations in prominence'};
             app.IgnoreOutliersCheckBox.Text = 'Ignore Outliers';
-            app.IgnoreOutliersCheckBox.Position = [19 79 100 22];
-
-            % Create UsefindpeaksCheckBox
-            app.UsefindpeaksCheckBox = uicheckbox(app.ControlsPanel);
-            app.UsefindpeaksCheckBox.ValueChangedFcn = createCallbackFcn(app, @UsefindpeaksCheckBoxValueChanged, true);
-            app.UsefindpeaksCheckBox.Tooltip = {'Peak and trough detection method:'; 'Default is to use the code developed by S. Sdao, but if checked, use the matlab findpeaks() method instead (JDR)'};
-            app.UsefindpeaksCheckBox.Text = 'Use findpeaks()';
-            app.UsefindpeaksCheckBox.Position = [19 33 105 22];
+            app.IgnoreOutliersCheckBox.Position = [19 49 100 22];
 
             % Create SheetLabel
             app.SheetLabel = uilabel(app.ControlsPanel);
             app.SheetLabel.HorizontalAlignment = 'right';
-            app.SheetLabel.Position = [19 131 39 22];
+            app.SheetLabel.Position = [19 101 39 22];
             app.SheetLabel.Text = 'Sheet:';
 
             % Create SheetDropDown
             app.SheetDropDown = uidropdown(app.ControlsPanel);
             app.SheetDropDown.Items = {'Sheet1'};
             app.SheetDropDown.ValueChangedFcn = createCallbackFcn(app, @SheetDropDownValueChanged, true);
-            app.SheetDropDown.Position = [73 131 100 22];
+            app.SheetDropDown.Position = [73 101 100 22];
             app.SheetDropDown.Value = 'Sheet1';
 
             % Create ShowPlatsCheckBox
             app.ShowPlatsCheckBox = uicheckbox(app.ControlsPanel);
             app.ShowPlatsCheckBox.ValueChangedFcn = createCallbackFcn(app, @ShowPlatsCheckBoxValueChanged, true);
             app.ShowPlatsCheckBox.Text = 'Show Plats';
-            app.ShowPlatsCheckBox.Position = [134 33 82 22];
+            app.ShowPlatsCheckBox.Position = [134 26 82 22];
 
-            % Create UpdateOutputButton
-            app.UpdateOutputButton = uibutton(app.ControlsPanel, 'push');
-            app.UpdateOutputButton.ButtonPushedFcn = createCallbackFcn(app, @UpdateOutputButtonPushed, true);
-            app.UpdateOutputButton.BackgroundColor = [0.0667 0.4431 0.7451];
-            app.UpdateOutputButton.Position = [19 8 259 23];
-            app.UpdateOutputButton.Text = 'Update Output with Current Analysis Params';
+            % Create peakmethod
+            app.peakmethod = uiswitch(app.ControlsPanel, 'slider');
+            app.peakmethod.Items = {'peakdetect', 'findpeaks'};
+            app.peakmethod.ValueChangedFcn = createCallbackFcn(app, @peakmethodValueChanged, true);
+            app.peakmethod.Tooltip = {'Method to locate peaks:'; 'peakdetect (default) uses the code developed by S. Sdao'; 'findpeaks uses new prominance method'};
+            app.peakmethod.Position = [90 4 45 20];
+            app.peakmethod.Value = 'peakdetect';
 
             % Create TabGroup
             app.TabGroup = uitabgroup(app.GridLayout);
             app.TabGroup.AutoResizeChildren = 'off';
-            app.TabGroup.Layout.Row = [4 6];
+            app.TabGroup.Layout.Row = [4 7];
             app.TabGroup.Layout.Column = [3 5];
 
             % Create PlotsTab
@@ -1151,7 +1145,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             xlabel(app.UIAxesAnal, 'X')
             ylabel(app.UIAxesAnal, 'Y')
             zlabel(app.UIAxesAnal, 'Z')
-            app.UIAxesAnal.Position = [0 31 944 833];
+            app.UIAxesAnal.Position = [1 16 1074 536];
 
             % Create WaveletviewTab
             app.WaveletviewTab = uitab(app.TabGroup);
@@ -1164,29 +1158,15 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             xlabel(app.UIAxesWVLT, 'X')
             ylabel(app.UIAxesWVLT, 'Y')
             zlabel(app.UIAxesWVLT, 'Z')
-            app.UIAxesWVLT.Position = [1 31 731 634];
+            app.UIAxesWVLT.Position = [1 16 863 367];
 
             % Create UIAxesWVLTx
             app.UIAxesWVLTx = uiaxes(app.WaveletviewTab);
-            app.UIAxesWVLTx.Position = [1 664 731 200];
+            app.UIAxesWVLTx.Position = [1 382 863 170];
 
             % Create UIAxesWVLTy
             app.UIAxesWVLTy = uiaxes(app.WaveletviewTab);
-            app.UIAxesWVLTy.Position = [731 31 212 634];
-
-            % Create DataSummaryPanel
-            app.DataSummaryPanel = uipanel(app.GridLayout);
-            app.DataSummaryPanel.AutoResizeChildren = 'off';
-            app.DataSummaryPanel.Title = 'Data Summary';
-            app.DataSummaryPanel.Layout.Row = 6;
-            app.DataSummaryPanel.Layout.Column = [1 2];
-
-            % Create UITableOutput
-            app.UITableOutput = uitable(app.DataSummaryPanel);
-            app.UITableOutput.ColumnName = {'Region'; 'nPeaks'; 'avgBaseline'; 'avgPeak'; 'avgPeakAmplitude'; 'Period'; 'Threshold'; 'PlatFrac'; 'ActiveArea'; 'AvePlatWidth'; 'AveBaseWidth'; 'SlientPhase'; 'AveYval'; 'Notes'};
-            app.UITableOutput.RowName = {};
-            app.UITableOutput.ColumnEditable = [false false false false false false false false false false false false false true];
-            app.UITableOutput.Position = [4 -1 516 248];
+            app.UIAxesWVLTy.Position = [863 16 212 337];
 
             % Create UITableTimeWindows
             app.UITableTimeWindows = uitable(app.GridLayout);
@@ -1226,23 +1206,39 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.SaveOutputButton = uibutton(app.GridLayout, 'push');
             app.SaveOutputButton.ButtonPushedFcn = createCallbackFcn(app, @SaveOutputButtonPushed, true);
             app.SaveOutputButton.BackgroundColor = [0.0667 0.4431 0.7451];
-            app.SaveOutputButton.Layout.Row = 7;
+            app.SaveOutputButton.Layout.Row = 8;
             app.SaveOutputButton.Layout.Column = 1;
             app.SaveOutputButton.Text = 'Save Output';
 
             % Create SaveFileEditField
             app.SaveFileEditField = uieditfield(app.GridLayout, 'text');
             app.SaveFileEditField.ValueChangedFcn = createCallbackFcn(app, @SaveFileEditFieldValueChanged2, true);
-            app.SaveFileEditField.Layout.Row = 7;
+            app.SaveFileEditField.Layout.Row = 8;
             app.SaveFileEditField.Layout.Column = 2;
 
             % Create LoadstateButton
             app.LoadstateButton = uibutton(app.GridLayout, 'push');
             app.LoadstateButton.ButtonPushedFcn = createCallbackFcn(app, @LoadstateButtonPushed, true);
             app.LoadstateButton.BackgroundColor = [0.149 0.149 0.149];
-            app.LoadstateButton.Layout.Row = 7;
+            app.LoadstateButton.Layout.Row = 8;
             app.LoadstateButton.Layout.Column = 5;
             app.LoadstateButton.Text = 'Load state';
+
+            % Create UpdateOutputButton
+            app.UpdateOutputButton = uibutton(app.GridLayout, 'push');
+            app.UpdateOutputButton.ButtonPushedFcn = createCallbackFcn(app, @UpdateOutputButtonPushed, true);
+            app.UpdateOutputButton.BackgroundColor = [0.0667 0.4431 0.7451];
+            app.UpdateOutputButton.Layout.Row = 6;
+            app.UpdateOutputButton.Layout.Column = 1;
+            app.UpdateOutputButton.Text = 'Analyze w/ above params';
+
+            % Create UITableOutput
+            app.UITableOutput = uitable(app.GridLayout);
+            app.UITableOutput.ColumnName = {'Region'; 'nPeaks'; 'avgBaseline'; 'avgPeak'; 'avgPeakAmplitude'; 'Period'; 'Threshold'; 'PlatFrac'; 'ActiveArea'; 'AvePlatWidth'; 'AveBaseWidth'; 'SlientPhase'; 'AveYval'; 'Notes'};
+            app.UITableOutput.RowName = {};
+            app.UITableOutput.ColumnEditable = [false false false false false false false false false false false false false true];
+            app.UITableOutput.Layout.Row = 7;
+            app.UITableOutput.Layout.Column = [1 2];
 
             % Create ContextMenu
             app.ContextMenu = uicontextmenu(app.UIFigure);
