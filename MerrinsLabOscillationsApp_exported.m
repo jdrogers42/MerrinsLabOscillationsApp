@@ -21,6 +21,8 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         UIAxesWVLTx               matlab.ui.control.UIAxes
         UIAxesWVLT                matlab.ui.control.UIAxes
         ControlsPanel             matlab.ui.container.Panel
+        updatethresholdsButton    matlab.ui.control.Button
+        initialthreshfactor       matlab.ui.control.NumericEditField
         peakmethod                matlab.ui.control.Switch
         ShowPlatsCheckBox         matlab.ui.control.CheckBox
         SheetDropDown             matlab.ui.control.DropDown
@@ -59,6 +61,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         timecol; % the column containing the time values (not always the first col)
         timeunits; 
         firstdatacol; % first column with data, assume it starts with #
+        threshfactor=1.0; % initial threshold factor to multiple by the standard deviation of the flattenned signal
     end
 
 
@@ -122,7 +125,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.UITableAnalVals.Data = table(); % init a table and then add variables
             app.UITableAnalVals.Data.Region = app.UITableImported.Data.Properties.VariableDescriptions(app.firstdatacol:end)'; % transpose cell array to get iselts as rows
             app.UITableAnalVals.Data.TWindow(:) = app.UITableTimeWindows.Data{1,1};
-            app.UITableAnalVals.Data.Threshold(:) =  std(app.UITableImported.Data{:,app.firstdatacol:end}); % 0.04; % old code used 0.04 as default threshhold for peak finding, trying std() as a starting point instead
+            app.UITableAnalVals.Data.Threshold(:) =  std(app.UITableImported.Data{:,app.firstdatacol:end})*app.threshfactor; % 0.04; % old code used 0.04 as default threshhold for peak finding, trying std() as a starting point instead
             app.UITableAnalVals.Data.Ignore(:) = false;
             % window, peaks, and troughs. Much is redundant but needed to
             % make plotting multiple rows in live view easier
@@ -941,7 +944,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                if selection == "Overwrite"
                     writetable(app.OutTable,fullsavefile)
                     t=table()
-                    t.freguqncy = app.UITableAnalVals.Data.aveWavelet{1}(:,1);
+                    t.frequency = app.UITableAnalVals.Data.aveWavelet{1}(:,1);
                     for row=1:size(app.OutTable,1)
                         t.(app.OutTable{row,1}{1}) = app.UITableAnalVals.Data.aveWavelet{row}(:,2);
                     end
@@ -952,7 +955,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
                 % assignin('base','OutTable',app.OutTable);
                 % assignin('base','AnalTable',app.UITableAnalVals.Data);
                 t=table()
-                t.freguqncy = app.UITableAnalVals.Data.aveWavelet{1}(:,1);
+                t.frequency = app.UITableAnalVals.Data.aveWavelet{1}(:,1);
                 for row=1:size(app.OutTable,1)
                     % t.peaksX = app.UITableAnalVals.Data.peaks{row}(:,1);
                     % t.peaksY = app.UITableAnalVals.Data.peaks{row}(:,2);
@@ -1022,6 +1025,20 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.updateUITableAnalVals();
             app.updateAnalPlot();
         end
+
+        % Value changed function: initialthreshfactor
+        function initialthreshfactorValueChanged(app, event)
+            value = app.initialthreshfactor.Value;
+        end
+
+        % Button pushed function: updatethresholdsButton
+        function updatethresholdsButtonPushed(app, event)
+            app.threshfactor = app.initialthreshfactor.Value;
+            % assignin("base","uitanalvals",app.UITableAnalVals)
+            app.UITableAnalVals.Data.Threshold(:) =  cellfun(@std,app.UITableAnalVals.Data.ydata)*app.threshfactor; % update the threshold for all regions 
+            app.updateUITableAnalVals();
+            app.updateAnalPlot();
+        end
     end
 
     % Component initialization
@@ -1083,7 +1100,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
 
             % Create Instructions
             app.Instructions = uilabel(app.ControlsPanel);
-            app.Instructions.Position = [235 20 250 103];
+            app.Instructions.Position = [225 40 250 103];
             app.Instructions.Text = {'Instructions:'; '1. Choose file, select sheet from dropdown '; '2. Update time window start and end'; '3. Right click table to add / del time windows'; '4. Select row(s) below to plot, update params'; '6. Click Analyze to refresh output table'; '7. Save to output file'};
 
             % Create DetrendCheckBox
@@ -1118,15 +1135,33 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
             app.ShowPlatsCheckBox = uicheckbox(app.ControlsPanel);
             app.ShowPlatsCheckBox.ValueChangedFcn = createCallbackFcn(app, @ShowPlatsCheckBoxValueChanged, true);
             app.ShowPlatsCheckBox.Text = 'Show Plats';
-            app.ShowPlatsCheckBox.Position = [134 26 82 22];
+            app.ShowPlatsCheckBox.Position = [109 26 82 22];
 
             % Create peakmethod
             app.peakmethod = uiswitch(app.ControlsPanel, 'slider');
             app.peakmethod.Items = {'peakdetect', 'findpeaks'};
             app.peakmethod.ValueChangedFcn = createCallbackFcn(app, @peakmethodValueChanged, true);
             app.peakmethod.Tooltip = {'Method to locate peaks:'; 'peakdetect (default) uses the code developed by S. Sdao'; 'findpeaks uses new prominance method'};
-            app.peakmethod.Position = [90 4 45 20];
+            app.peakmethod.Position = [83 2 45 20];
             app.peakmethod.Value = 'peakdetect';
+
+            % Create initialthreshfactor
+            app.initialthreshfactor = uieditfield(app.ControlsPanel, 'numeric');
+            app.initialthreshfactor.Limits = [0 10];
+            app.initialthreshfactor.ValueDisplayFormat = '%.2f';
+            app.initialthreshfactor.ValueChangedFcn = createCallbackFcn(app, @initialthreshfactorValueChanged, true);
+            app.initialthreshfactor.Tooltip = {'Update the initial threshold value for all rows below in standard deviations (\sigma)'};
+            app.initialthreshfactor.Position = [338 4 43 22];
+            app.initialthreshfactor.Value = 1;
+
+            % Create updatethresholdsButton
+            app.updatethresholdsButton = uibutton(app.ControlsPanel, 'push');
+            app.updatethresholdsButton.ButtonPushedFcn = createCallbackFcn(app, @updatethresholdsButtonPushed, true);
+            app.updatethresholdsButton.BackgroundColor = [0.0667 0.4431 0.7451];
+            app.updatethresholdsButton.FontColor = [1 1 1];
+            app.updatethresholdsButton.Tooltip = {'Update the initial threshold value for all rows below in standard deviations (\sigma)'};
+            app.updatethresholdsButton.Position = [215 4 115 23];
+            app.updatethresholdsButton.Text = 'update thresholds:';
 
             % Create TabGroup
             app.TabGroup = uitabgroup(app.GridLayout);
