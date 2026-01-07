@@ -69,7 +69,7 @@ classdef MerrinsLabOscillationsApp_exported < matlab.apps.AppBase
         
         function initializeTables(app)
             % read in the excel data to a table and asign to a UITable
-            app.TableData = readtable(app.fullfilename,"Sheet",app.SheetDropDown.Value);
+            app.TableData = readtable(app.fullfilename,"Sheet",app.SheetDropDown.Value, 'ReadVariableNames', true);
             app.UITableImported.Data = app.TableData;
             app.UITableImported.ColumnName = app.TableData.Properties.VariableDescriptions;
             % identify columns that are data
